@@ -19,33 +19,56 @@
 
 package org.apache.iceberg;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.MoreObjects;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.util.Pair;
 
-class BaseFileScanTask implements FileScanTask {
+public class BaseFileScanTask implements FileScanTask {
   private final DataFile file;
   private final DeleteFile[] deletes;
   private final String schemaString;
   private final String specString;
   private final ResidualEvaluator residuals;
+  private final long sequenceNumberForFile;
+  private final long[] sequenceNumbersForDeletes;
 
   private transient PartitionSpec spec = null;
 
-  BaseFileScanTask(DataFile file, DeleteFile[] deletes, String schemaString, String specString,
+  public BaseFileScanTask(DataFile file, DeleteFile[] deletes, String schemaString, String specString,
                    ResidualEvaluator residuals) {
     this.file = file;
     this.deletes = deletes != null ? deletes : new DeleteFile[0];
     this.schemaString = schemaString;
     this.specString = specString;
     this.residuals = residuals;
+    this.sequenceNumberForFile = -1;
+    this.sequenceNumbersForDeletes = null;
+  }
+
+  public BaseFileScanTask(DataFile file, Pair<DeleteFile[], long[]> deletesWithSeq, String schemaString,
+      String specString, ResidualEvaluator residuals, long dataFileSeqNumber) {
+    this.file = file;
+    this.schemaString = schemaString;
+    this.specString = specString;
+    this.residuals = residuals;
+    if (deletesWithSeq != null) {
+      this.deletes = (deletesWithSeq.first() != null) ? deletesWithSeq.first() : new DeleteFile[0];
+      this.sequenceNumbersForDeletes = (deletesWithSeq.second() != null) ? deletesWithSeq.second() : null;
+    } else {
+      this.deletes = new DeleteFile[0];
+      this.sequenceNumbersForDeletes = null;
+    }
+    this.sequenceNumberForFile = dataFileSeqNumber;
   }
 
   @Override
@@ -264,5 +287,13 @@ class BaseFileScanTask implements FileScanTask {
     }
 
     return combinedScans;
+  }
+
+  public long fileSequenceNumber() {
+    return sequenceNumberForFile;
+  }
+
+  public List<Long> deletesSequenceNumbers() {
+    return Arrays.stream(sequenceNumbersForDeletes).boxed().collect(Collectors.toList());
   }
 }

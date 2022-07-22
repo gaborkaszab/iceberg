@@ -115,7 +115,7 @@ class DeleteFileIndex {
     return forDataFile(entry.sequenceNumber(), entry.file());
   }
 
-  DeleteFile[] forDataFile(long sequenceNumber, DataFile file) {
+  /* DeleteFile[] forDataFile(long sequenceNumber, DataFile file) {
     Pair<Integer, StructLikeWrapper> partition = partition(file.specId(), file.partition());
     Pair<long[], DeleteFile[]> partitionDeletes = sortedDeletesByPartition.get(partition);
 
@@ -133,7 +133,70 @@ class DeleteFileIndex {
     return matchingDeletes
         .filter(deleteFile -> canContainDeletesForFile(file, deleteFile, specsById.get(file.specId()).schema()))
         .toArray(DeleteFile[]::new);
+  }*/
+  DeleteFile[] forDataFile(long sequenceNumber, DataFile file) {
+    return forDataFileWithSequenceNumber(sequenceNumber, file).first();
   }
+
+  // TODO gaborkaszab: some experimenting
+  Pair<DeleteFile[], long[]> forEntryWithSequenceNumber(ManifestEntry<DataFile> entry) {
+    return forDataFileWithSequenceNumber(entry.sequenceNumber(), entry.file());
+  }
+
+  Pair<DeleteFile[], long[]> forDataFileWithSequenceNumber(long sequenceNumber, DataFile file) {
+    Pair<Integer, StructLikeWrapper> partition = partition(file.specId(), file.partition());
+    Pair<long[], DeleteFile[]> partitionDeletes = sortedDeletesByPartition.get(partition);
+
+    List<Pair<DeleteFile, Long>> matchingDeletes;
+    if (partitionDeletes == null) {
+      matchingDeletes = limitBySequenceNumber(sequenceNumber, Pair.of(globalSeqs, globalDeletes));
+    } else if (globalDeletes == null) {
+      matchingDeletes = limitBySequenceNumber(sequenceNumber, partitionDeletes);
+    } else {
+      matchingDeletes = limitBySequenceNumber(sequenceNumber, Pair.of(globalSeqs, globalDeletes));
+      matchingDeletes.addAll(limitBySequenceNumber(sequenceNumber, partitionDeletes));
+    }
+
+    List<Pair<DeleteFile, Long>> filteredMatchingDeletes = matchingDeletes.stream()
+        .filter(deleteEntry -> canContainDeletesForFile(file, deleteEntry.first(),
+            specsById.get(file.specId()).schema()))
+        .collect(Collectors.toList());
+
+    DeleteFile[] deleteFiles = filteredMatchingDeletes.stream().map(Pair::first).toArray(DeleteFile[]::new);
+    long[] sequenceNumbers = filteredMatchingDeletes.stream().mapToLong(Pair::second).toArray();
+
+    return Pair.of(deleteFiles, sequenceNumbers);
+  }
+
+  private static List<Pair<DeleteFile, Long>> limitBySequenceNumber(long sequenceNumber,
+      Pair<long[], DeleteFile[]> seqNumToDeleteFile) {
+    long[] seqs = seqNumToDeleteFile.first();
+    DeleteFile[] files = seqNumToDeleteFile.second();
+    if (seqNumToDeleteFile.second() == null) {
+      return Lists.newArrayList();
+    }
+
+    int pos = Arrays.binarySearch(seqs, sequenceNumber);
+    int start;
+    if (pos < 0) {
+      // the sequence number was not found, where it would be inserted is -(pos + 1)
+      start = -(pos + 1);
+    } else {
+      // the sequence number was found, but may not be the first
+      // find the first delete file with the given sequence number by decrementing the position
+      start = pos;
+      while (start > 0 && seqs[start - 1] >= sequenceNumber) {
+        start -= 1;
+      }
+    }
+
+    List<Pair<DeleteFile, Long>> result = Lists.newArrayList();
+    for (int i = start; i < files.length; ++i) {
+      result.add(Pair.of(files[i], seqs[i]));
+    }
+    return result;
+  }
+  // ==================
 
   private static boolean canContainDeletesForFile(DataFile dataFile, DeleteFile deleteFile, Schema schema) {
     switch (deleteFile.content()) {

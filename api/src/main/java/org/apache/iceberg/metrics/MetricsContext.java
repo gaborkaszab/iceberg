@@ -139,6 +139,17 @@ public interface MetricsContext extends Serializable {
   }
 
   /**
+   * Get a named multi-dimension counter
+   *
+   * @param name The name of the counter
+   * @param unit The unit designation of the counter
+   * @return a {@link MultiDimensionCounter} implementation
+   */
+  default MultiDimensionCounter multiCounter(String name, Unit unit) {
+    throw new UnsupportedOperationException("MultiDimensionCounter is not supported.");
+  }
+
+  /**
    * Get a named timer.
    *
    * @param name name of the metric
@@ -186,6 +197,11 @@ public interface MetricsContext extends Serializable {
       @Override
       public org.apache.iceberg.metrics.Counter counter(String name, Unit unit) {
         return org.apache.iceberg.metrics.DefaultCounter.NOOP;
+      }
+
+      @Override
+      public MultiDimensionCounter multiCounter(String name, Unit unit) {
+        return DefaultMultiDimensionCounter.NOOP;
       }
     };
   }

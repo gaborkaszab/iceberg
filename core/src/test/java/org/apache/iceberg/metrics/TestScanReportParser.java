@@ -19,7 +19,9 @@
 package org.apache.iceberg.metrics;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.gson.JsonParser;
 import java.util.concurrent.TimeUnit;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.expressions.Expressions;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
@@ -69,6 +71,9 @@ public class TestScanReportParser {
     ScanMetrics scanMetrics = ScanMetrics.of(new DefaultMetricsContext());
     scanMetrics.totalPlanningDuration().record(10, TimeUnit.MINUTES);
     scanMetrics.resultDataFiles().increment(5L);
+    scanMetrics.resultDataFilesByFormat().increment(FileFormat.AVRO, 1L);
+    scanMetrics.resultDataFilesByFormat().increment(FileFormat.ORC, 2L);
+    scanMetrics.resultDataFilesByFormat().increment(FileFormat.PARQUET, 3L);
     scanMetrics.resultDeleteFiles().increment(5L);
     scanMetrics.scannedDataManifests().increment(5L);
     scanMetrics.skippedDataManifests().increment(5L);
@@ -102,6 +107,10 @@ public class TestScanReportParser {
                     + "\"filter\":true,\"schema-id\": 4,\"projected-field-ids\": [ 1, 2, 3 ],\"projected-field-names\": [ \"c1\", \"c2\", \"c3\" ],"
                     + "\"metrics\":{\"total-planning-duration\":{\"count\":1,\"time-unit\":\"nanoseconds\",\"total-duration\":600000000000},"
                     + "\"result-data-files\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"result-data-files-by-format\":{\"unit\":\"count\",\"type\":\"org.apache.iceberg.FileFormat\",\"counters\":[{\"name\":\"AVRO\",\"value\":1},{\"name\":\"ORC\",\"value\":2},{\"name\":\"PARQUET\",\"value\":3}]},"
+                    + "\"result-avro-data-files\":{\"unit\":\"count\",\"value\":1},"
+                    + "\"result-orc-data-files\":{\"unit\":\"count\",\"value\":2},"
+                    + "\"result-parquet-data-files\":{\"unit\":\"count\",\"value\":3},"
                     + "\"result-delete-files\":{\"unit\":\"count\",\"value\":5},"
                     + "\"total-data-manifests\":{\"unit\":\"count\",\"value\":5},"
                     + "\"total-delete-manifests\":{\"unit\":\"count\",\"value\":0},"
@@ -177,6 +186,9 @@ public class TestScanReportParser {
     ScanMetrics scanMetrics = ScanMetrics.of(new DefaultMetricsContext());
     scanMetrics.totalPlanningDuration().record(10, TimeUnit.MINUTES);
     scanMetrics.resultDataFiles().increment(5L);
+    // scanMetrics.resultDataFilesByFormat().increment(FileFormat.AVRO, 1L);
+    // scanMetrics.resultDataFilesByFormat().increment(FileFormat.ORC, 2L);
+    // scanMetrics.resultDataFilesByFormat().increment(FileFormat.PARQUET, 3L);
     scanMetrics.resultDeleteFiles().increment(5L);
     scanMetrics.scannedDataManifests().increment(5L);
     scanMetrics.skippedDataManifests().increment(5L);
@@ -221,6 +233,25 @@ public class TestScanReportParser {
             + "    \"result-data-files\" : {\n"
             + "      \"unit\" : \"count\",\n"
             + "      \"value\" : 5\n"
+            + "    },\n"
+ /*           + "    \"result-data-files-by-format\" : {\n"
+            + "      \"unit\" : \"count\",\n"
+            + "      \"type\" : \"org.apache.iceberg.FileFormat\",\n"
+            + "      \"counters\" : [ {\n"
+            + "        \"name\" : \"AVRO\",\n"
+            + "        \"value\" : 1\n"
+            + "      }, {\n"
+            + "        \"name\" : \"ORC\",\n"
+            + "        \"value\" : 2\n"
+            + "      }, {\n"
+            + "        \"name\" : \"PARQUET\",\n"
+            + "        \"value\" : 3\n"
+            + "      } ]\n"
+            + "    },\n"*/
+            + "    \"result-data-files-by-format\" : {\n"
+            + "      \"unit\" : \"count\",\n"
+            + "      \"type\" : \"org.apache.iceberg.FileFormat\",\n"
+            + "      \"counters\" : []\n"
             + "    },\n"
             + "    \"result-delete-files\" : {\n"
             + "      \"unit\" : \"count\",\n"
@@ -283,7 +314,8 @@ public class TestScanReportParser {
 
     String json = ScanReportParser.toJson(scanReport, true);
     Assertions.assertThat(ScanReportParser.fromJson(json)).isEqualTo(scanReport);
-    Assertions.assertThat(json).isEqualTo(expectedJson);
+    JsonParser parser = new JsonParser();
+    Assertions.assertThat(parser.parse(json)).isEqualTo(parser.parse(expectedJson));
   }
 
   @Test

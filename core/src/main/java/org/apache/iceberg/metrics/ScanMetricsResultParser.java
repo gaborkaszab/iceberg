@@ -51,6 +51,13 @@ class ScanMetricsResultParser {
       CounterResultParser.toJson(metrics.resultDataFiles(), gen);
     }
 
+    if (null != metrics.resultDataFilesByFormat()) {
+      MultiDimensionCounterResultParser.toJson(
+          ScanMetrics.RESULT_DATA_FILES_BY_FORMAT,
+          "org.apache.iceberg.FileFormat",
+          metrics.resultDataFilesByFormat(), gen);
+    }
+
     if (null != metrics.resultDeleteFiles()) {
       gen.writeFieldName(ScanMetrics.RESULT_DELETE_FILES);
       CounterResultParser.toJson(metrics.resultDeleteFiles(), gen);
@@ -137,6 +144,9 @@ class ScanMetricsResultParser {
         .totalPlanningDuration(
             TimerResultParser.fromJson(ScanMetrics.TOTAL_PLANNING_DURATION, json))
         .resultDataFiles(CounterResultParser.fromJson(ScanMetrics.RESULT_DATA_FILES, json))
+        .resultDataFilesByFormat(
+            MultiDimensionCounterResultParser.fromJson(
+                ScanMetrics.RESULT_DATA_FILES_BY_FORMAT, json))
         .resultDeleteFiles(CounterResultParser.fromJson(ScanMetrics.RESULT_DELETE_FILES, json))
         .totalDataManifests(CounterResultParser.fromJson(ScanMetrics.TOTAL_DATA_MANIFESTS, json))
         .totalDeleteManifests(

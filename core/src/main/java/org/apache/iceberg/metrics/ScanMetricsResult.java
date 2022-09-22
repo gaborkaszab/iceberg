@@ -19,6 +19,7 @@
 package org.apache.iceberg.metrics;
 
 import edu.umd.cs.findbugs.annotations.Nullable;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.immutables.value.Value;
 
@@ -73,11 +74,16 @@ public interface ScanMetricsResult {
   @Nullable
   CounterResult positionalDeleteFiles();
 
+  @Nullable
+  MultiDimensionCounterResult<FileFormat> resultDataFilesByFormat();
+
   static ScanMetricsResult fromScanMetrics(ScanMetrics scanMetrics) {
     Preconditions.checkArgument(null != scanMetrics, "Invalid scan metrics: null");
     return ImmutableScanMetricsResult.builder()
         .totalPlanningDuration(TimerResult.fromTimer(scanMetrics.totalPlanningDuration()))
         .resultDataFiles(CounterResult.fromCounter(scanMetrics.resultDataFiles()))
+        .resultDataFilesByFormat(
+            MultiDimensionCounterResult.fromCounter(scanMetrics.resultDataFilesByFormat()))
         .resultDeleteFiles(CounterResult.fromCounter(scanMetrics.resultDeleteFiles()))
         .totalDataManifests(CounterResult.fromCounter(scanMetrics.totalDataManifests()))
         .totalDeleteManifests(CounterResult.fromCounter(scanMetrics.totalDeleteManifests()))

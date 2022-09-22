@@ -21,6 +21,7 @@ package org.apache.iceberg.metrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.metrics.MetricsContext.Unit;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
@@ -156,6 +157,29 @@ public class TestScanMetricsResultParser {
                     + "\"total-delete-file-size-in-bytes\":{\"unit\":\"bytes\",\"value\":1023},"
                     + "\"skipped-data-files\":{\"unit\":\"count\",\"value\":23}}"))
         .isEqualTo(scanMetricsResult);
+
+    // scanMetricsResult =
+    //    scanMetricsResult.withResultAvroDataFiles(CounterResult.of(Unit.COUNT, 11L));
+    // scanMetricsResult = scanMetricsResult.withResultOrcDataFiles(CounterResult.of(Unit.COUNT,
+    // 22L));
+    scanMetricsResult =
+        scanMetricsResult.withResultDataFilesByFormat(
+            MultiDimensionCounterResult.of(Unit.COUNT, FileFormat.AVRO, 11L));
+    Assertions.assertThat(
+            ScanMetricsResultParser.fromJson(
+                "{\"total-planning-duration\":{\"count\":3,\"time-unit\":\"hours\",\"total-duration\":10},"
+                    + "\"result-data-files\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"result-avro-data-files\":{\"unit\":\"count\",\"value\":11},"
+                    + "\"result-orc-data-files\":{\"unit\":\"count\",\"value\":22},"
+                    + "\"result-delete-files\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"total-data-manifests\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"total-delete-manifests\":{\"unit\":\"count\",\"value\":0},"
+                    + "\"scanned-data-manifests\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"skipped-data-manifests\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"total-file-size-in-bytes\":{\"unit\":\"bytes\",\"value\":1069},"
+                    + "\"total-delete-file-size-in-bytes\":{\"unit\":\"bytes\",\"value\":1023},"
+                    + "\"skipped-data-files\":{\"unit\":\"count\",\"value\":23}}"))
+        .isEqualTo(scanMetricsResult);
   }
 
   @Test
@@ -163,6 +187,9 @@ public class TestScanMetricsResultParser {
     ScanMetrics scanMetrics = ScanMetrics.of(new DefaultMetricsContext());
     scanMetrics.totalPlanningDuration().record(10, TimeUnit.MINUTES);
     scanMetrics.resultDataFiles().increment(5L);
+    // scanMetrics.resultAvroDataFiles().increment(51L);
+    // scanMetrics.resultOrcDataFiles().increment(52L);
+    // scanMetrics.resultParquetDataFiles().increment(53L);
     scanMetrics.resultDeleteFiles().increment(5L);
     scanMetrics.scannedDataManifests().increment(5L);
     scanMetrics.skippedDataManifests().increment(5L);
@@ -183,6 +210,9 @@ public class TestScanMetricsResultParser {
             ScanMetricsResultParser.fromJson(
                 "{\"total-planning-duration\":{\"count\":1,\"time-unit\":\"nanoseconds\",\"total-duration\":600000000000},"
                     + "\"result-data-files\":{\"unit\":\"count\",\"value\":5},"
+                    + "\"result-avro-data-files\":{\"unit\":\"count\",\"value\":51},"
+                    + "\"result-orc-data-files\":{\"unit\":\"count\",\"value\":52},"
+                    + "\"result-parquet-data-files\":{\"unit\":\"count\",\"value\":53},"
                     + "\"result-delete-files\":{\"unit\":\"count\",\"value\":5},"
                     + "\"total-data-manifests\":{\"unit\":\"count\",\"value\":5},"
                     + "\"total-delete-manifests\":{\"unit\":\"count\",\"value\":0},"
@@ -227,6 +257,9 @@ public class TestScanMetricsResultParser {
     ScanMetrics scanMetrics = ScanMetrics.of(new DefaultMetricsContext());
     scanMetrics.totalPlanningDuration().record(10, TimeUnit.DAYS);
     scanMetrics.resultDataFiles().increment(5L);
+    // scanMetrics.resultAvroDataFiles().increment(1L);
+    // scanMetrics.resultOrcDataFiles().increment(2L);
+    // scanMetrics.resultParquetDataFiles().increment(3L);
     scanMetrics.resultDeleteFiles().increment(5L);
     scanMetrics.scannedDataManifests().increment(5L);
     scanMetrics.skippedDataManifests().increment(5L);
@@ -254,6 +287,18 @@ public class TestScanMetricsResultParser {
             + "  \"result-data-files\" : {\n"
             + "    \"unit\" : \"count\",\n"
             + "    \"value\" : 5\n"
+            + "  },\n"
+            + "  \"result-avro-data-files\" : {\n"
+            + "    \"unit\" : \"count\",\n"
+            + "    \"value\" : 1\n"
+            + "  },\n"
+            + "  \"result-orc-data-files\" : {\n"
+            + "    \"unit\" : \"count\",\n"
+            + "    \"value\" : 2\n"
+            + "  },\n"
+            + "  \"result-parquet-data-files\" : {\n"
+            + "    \"unit\" : \"count\",\n"
+            + "    \"value\" : 3\n"
             + "  },\n"
             + "  \"result-delete-files\" : {\n"
             + "    \"unit\" : \"count\",\n"

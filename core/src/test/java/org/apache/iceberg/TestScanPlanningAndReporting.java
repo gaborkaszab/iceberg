@@ -66,6 +66,10 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     ScanMetricsResult result = scanReport.scanMetrics();
     assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
     assertThat(result.resultDataFiles().value()).isEqualTo(3);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(3);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(3);
     assertThat(result.resultDeleteFiles().value()).isEqualTo(0);
     assertThat(result.scannedDataManifests().value()).isEqualTo(2);
     assertThat(result.scannedDeleteManifests().value()).isEqualTo(0);
@@ -91,6 +95,10 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     assertThat(scanReport.snapshotId()).isEqualTo(2L);
     assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
     assertThat(result.resultDataFiles().value()).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(1);
     assertThat(result.resultDeleteFiles().value()).isEqualTo(0);
     assertThat(result.scannedDataManifests().value()).isEqualTo(1);
     assertThat(result.scannedDeleteManifests().value()).isEqualTo(0);
@@ -131,6 +139,10 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     ScanMetricsResult result = scanReport.scanMetrics();
     assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
     assertThat(result.resultDataFiles().value()).isEqualTo(3);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(3);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(3);
     assertThat(result.resultDeleteFiles().value()).isEqualTo(2);
     assertThat(result.scannedDataManifests().value()).isEqualTo(1);
     assertThat(result.scannedDeleteManifests().value()).isEqualTo(1);
@@ -168,6 +180,10 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     assertThat(scanReport.snapshotId()).isEqualTo(2L);
     ScanMetricsResult result = scanReport.scanMetrics();
     assertThat(result.skippedDataFiles().value()).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(1);
     assertThat(result.skippedDeleteFiles().value()).isEqualTo(0);
     assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
     assertThat(result.resultDataFiles().value()).isEqualTo(1);
@@ -205,6 +221,10 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     ScanMetricsResult result = scanReport.scanMetrics();
     assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
     assertThat(result.resultDataFiles().value()).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(0);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(1);
     assertThat(result.resultDeleteFiles().value()).isEqualTo(1);
     assertThat(result.skippedDataFiles().value()).isEqualTo(1);
     assertThat(result.skippedDeleteFiles().value()).isEqualTo(1);
@@ -243,6 +263,42 @@ public class TestScanPlanningAndReporting extends TableTestBase {
     assertThat(result.indexedDeleteFiles().value()).isEqualTo(2);
     assertThat(result.equalityDeleteFiles().value()).isEqualTo(1);
     assertThat(result.positionalDeleteFiles().value()).isEqualTo(1);
+  }
+
+  @Test
+  public void scanningWithDataFilesOfMixedFileFormats() throws IOException {
+    String tableName = "scan-planning-with-mixed-file-formats";
+    Table table =
+        TestTables.create(
+            tableDir, tableName, SCHEMA, SPEC, SortOrder.unsorted(), formatVersion, reporter);
+    table.newAppend().appendFile(FILE_A).appendFile(FILE_ORC).commit();
+    table.newAppend().appendFile(FILE_AVRO).commit();
+    TableScan tableScan = table.newScan();
+
+    try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
+      fileScanTasks.forEach(task -> {});
+    }
+
+    ScanReport scanReport = reporter.lastReport();
+    assertThat(scanReport).isNotNull();
+    assertThat(scanReport.tableName()).isEqualTo(tableName);
+    assertThat(scanReport.snapshotId()).isEqualTo(2L);
+    ScanMetricsResult result = scanReport.scanMetrics();
+    assertThat(result.totalPlanningDuration().totalDuration()).isGreaterThan(Duration.ZERO);
+    assertThat(result.resultDataFiles().value()).isEqualTo(3);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.AVRO.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.ORC.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().value(FileFormat.PARQUET.toString())).isEqualTo(1);
+    assertThat(result.resultDataFilesByFormat().totalValue()).isEqualTo(3);
+    assertThat(result.resultDeleteFiles().value()).isEqualTo(0);
+    assertThat(result.skippedDataFiles().value()).isEqualTo(0);
+    assertThat(result.skippedDeleteFiles().value()).isEqualTo(0);
+    assertThat(result.scannedDataManifests().value()).isEqualTo(2);
+    assertThat(result.skippedDataManifests().value()).isEqualTo(0);
+    assertThat(result.totalDataManifests().value()).isEqualTo(2);
+    assertThat(result.totalDeleteManifests().value()).isEqualTo(0);
+    assertThat(result.totalFileSizeInBytes().value()).isEqualTo(30L);
+    assertThat(result.totalDeleteFileSizeInBytes().value()).isEqualTo(0);
   }
 
   private static class TestMetricsReporter implements MetricsReporter {

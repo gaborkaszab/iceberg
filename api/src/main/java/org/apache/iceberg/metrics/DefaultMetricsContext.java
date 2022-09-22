@@ -53,6 +53,11 @@ public class DefaultMetricsContext implements MetricsContext {
   }
 
   @Override
+  public MultiDimensionCounter multiCounter(String name, Unit unit) {
+    return new DefaultMultiDimensionCounter(name, unit, this);
+  }
+
+  @Override
   public Histogram histogram(String name) {
     return new FixedReservoirHistogram(DEFAULT_HISTOGRAM_RESERVOIR_SIZE);
   }

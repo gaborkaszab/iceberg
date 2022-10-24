@@ -66,6 +66,10 @@ acceptedBreaks:
       old: "method void org.apache.iceberg.io.DataWriter<T>::add(T)"
       justification: "Removing deprecated method"
   "1.1.0":
+    org.apache.iceberg:iceberg-api:
+    - code: "java.method.addedToInterface"
+      new: "method org.apache.iceberg.ManageSnapshots org.apache.iceberg.Transaction::manageSnapshots()"
+      justification: "ManageSnapshots creation through Transaction"
     org.apache.iceberg:iceberg-core:
     - code: "java.method.exception.checkedAdded"
       old: "method T com.fasterxml.jackson.databind.JsonDeserializer<T>::deserialize(com.fasterxml.jackson.core.JsonParser,\

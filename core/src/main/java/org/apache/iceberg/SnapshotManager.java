@@ -22,6 +22,7 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 
 public class SnapshotManager implements ManageSnapshots {
 
+  private final boolean isExternalTransaction;
   private final BaseTransaction transaction;
   private UpdateSnapshotReferencesOperation updateSnapshotReferencesOperation;
 
@@ -30,6 +31,17 @@ public class SnapshotManager implements ManageSnapshots {
         ops.current() != null, "Cannot manage snapshots: table %s does not exist", tableName);
     this.transaction =
         new BaseTransaction(tableName, ops, BaseTransaction.TransactionType.SIMPLE, ops.refresh());
+    this.isExternalTransaction = false;
+  }
+
+  SnapshotManager(BaseTransaction transaction) {
+    Preconditions.checkNotNull(transaction, "Input transaction cannot be null");
+    Preconditions.checkNotNull(
+        transaction.underlyingOps().current(),
+        "Cannot manage snapshots: table %s does not exist",
+        transaction.tableName());
+    this.transaction = transaction;
+    this.isExternalTransaction = true;
   }
 
   @Override
@@ -155,6 +167,8 @@ public class SnapshotManager implements ManageSnapshots {
   @Override
   public void commit() {
     commitIfRefUpdatesExist();
-    transaction.commitTransaction();
+    if (!isExternalTransaction) {
+      transaction.commitTransaction();
+    }
   }
 }

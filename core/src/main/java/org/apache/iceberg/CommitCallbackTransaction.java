@@ -112,6 +112,12 @@ class CommitCallbackTransaction implements Transaction {
   }
 
   @Override
+  public ManageSnapshots manageSnapshots() {
+    throw new UnsupportedOperationException(
+        "CommitCallbackTransaction do not support ManageSnapshots.");
+  }
+
+  @Override
   public void commitTransaction() {
     wrapped.commitTransaction();
     callback.run();

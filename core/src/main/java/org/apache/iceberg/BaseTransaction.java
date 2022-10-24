@@ -91,6 +91,10 @@ public class BaseTransaction implements Transaction {
     return transactionTable;
   }
 
+  public String tableName() {
+    return tableName;
+  }
+
   public TableMetadata startMetadata() {
     return current;
   }
@@ -231,6 +235,13 @@ public class BaseTransaction implements Transaction {
     expire.deleteWith(enqueueDelete);
     updates.add(expire);
     return expire;
+  }
+
+  @Override
+  public ManageSnapshots manageSnapshots() {
+    SnapshotManager snapshotManager = new SnapshotManager(this);
+    updates.add(snapshotManager);
+    return snapshotManager;
   }
 
   CherryPickOperation cherryPick() {

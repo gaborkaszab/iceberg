@@ -20,6 +20,7 @@ package org.apache.iceberg;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import java.io.IOException;
 import java.util.Map;
 import org.apache.iceberg.ManifestReader.FileType;
@@ -57,11 +58,10 @@ public class ManifestFiles {
 
   @VisibleForTesting
   static Caffeine<Object, Object> newManifestCacheBuilder() {
-    int maxSize = SystemConfigs.IO_MANIFEST_CACHE_MAX_FILEIO.value();
     return Caffeine.newBuilder()
         .weakKeys()
         .softValues()
-        .maximumSize(maxSize)
+        .maximumSize(SystemConfigs.IO_MANIFEST_CACHE_MAX_FILEIO.value())
         .removalListener(
             (io, contentCache, cause) ->
                 LOG.debug("Evicted {} from FileIO-level cache ({})", io, cause))
@@ -84,6 +84,11 @@ public class ManifestFiles {
   public static void dropCache(FileIO fileIO) {
     CONTENT_CACHES.invalidate(fileIO);
     CONTENT_CACHES.cleanUp();
+  }
+
+  /** Get statistics of the manifest file cache for a FileIO. */
+  public static CacheStats contentCacheStats(FileIO io) {
+    return contentCache(io).stats();
   }
 
   /**

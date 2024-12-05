@@ -52,6 +52,7 @@ import java.util.SortedSet;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.apache.directory.api.util.Strings;
 import org.apache.iceberg.TableMetadata.MetadataLogEntry;
 import org.apache.iceberg.TableMetadata.SnapshotLogEntry;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -1455,6 +1456,25 @@ public class TestTableMetadata {
     assertThat(meta.properties())
         .containsEntry("key", "val")
         .doesNotContainKey(TableProperties.FORMAT_VERSION);
+  }
+
+  @Test
+  public void testCreateMetadataUpperCaseFormatVersion() {
+    Schema schema = new Schema(Types.NestedField.required(10, "x", Types.StringType.get()));
+    final String UPPERCASE_FORMAT_VERSION = Strings.upperCase(TableProperties.FORMAT_VERSION);
+
+    TableMetadata meta =
+        TableMetadata.newTableMetadata(
+            schema,
+            PartitionSpec.unpartitioned(),
+            null,
+            ImmutableMap.of(UPPERCASE_FORMAT_VERSION, "1", "key", "val"));
+
+    assertThat(meta.formatVersion()).isEqualTo(1);  // This fails
+    assertThat(meta.properties())
+        .containsEntry("key", "val")
+        .doesNotContainKey(TableProperties.FORMAT_VERSION)
+        .doesNotContainKey(UPPERCASE_FORMAT_VERSION);       // This also fails
   }
 
   private static Stream<Arguments> upgradeFormatVersionProvider() {

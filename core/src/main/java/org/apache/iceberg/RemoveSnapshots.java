@@ -35,6 +35,8 @@ import static org.apache.iceberg.TableProperties.MAX_SNAPSHOT_AGE_MS_DEFAULT;
 import static org.apache.iceberg.TableProperties.MIN_SNAPSHOTS_TO_KEEP;
 import static org.apache.iceberg.TableProperties.MIN_SNAPSHOTS_TO_KEEP_DEFAULT;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.io.SupportsBulkOperations;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
@@ -64,13 +67,27 @@ class RemoveSnapshots implements ExpireSnapshots {
   private static final ExecutorService DEFAULT_DELETE_EXECUTOR_SERVICE =
       MoreExecutors.newDirectExecutorService();
 
-  private final Consumer<String> defaultDelete =
-      new Consumer<String>() {
-        @Override
-        public void accept(String file) {
-          ops.io().deleteFile(file);
-        }
-      };
+  private class DefaultDelete implements Consumer<String>, Closeable {
+
+    // TODO: I guess there is a race condition when populating this list.
+    private final List<String> files = Lists.newArrayList();
+
+    @Override
+    public void accept(String file) {
+      if (ops instanceof SupportsBulkOperations) {
+        files.add(file);
+      } else {
+        ops.io().deleteFile(file);
+      }
+    }
+
+    @Override
+    public void close() throws IOException {
+      if (ops instanceof SupportsBulkOperations && !files.isEmpty()) {
+        ((SupportsBulkOperations) ops).deleteFiles(files);
+      }
+    }
+  }
 
   private final TableOperations ops;
   private final Set<Long> idsToRemove = Sets.newHashSet();
@@ -80,7 +97,7 @@ class RemoveSnapshots implements ExpireSnapshots {
   private TableMetadata base;
   private long defaultExpireOlderThan;
   private int defaultMinNumSnapshots;
-  private Consumer<String> deleteFunc = defaultDelete;
+  private Consumer<String> deleteFunc = new DefaultDelete();
   private ExecutorService deleteExecutorService = DEFAULT_DELETE_EXECUTOR_SERVICE;
   private ExecutorService planExecutorService = ThreadPools.getWorkerPool();
   private Boolean incrementalCleanup;

@@ -18,6 +18,8 @@
  */
 package org.apache.iceberg;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
@@ -25,6 +27,7 @@ import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.util.Tasks;
 import org.slf4j.Logger;
@@ -83,6 +86,13 @@ abstract class FileCleanupStrategy {
         .onFailure(
             (file, thrown) -> LOG.warn("Delete failed for {} file: {}", fileType, file, thrown))
         .run(deleteFunc::accept);
+    if (deleteFunc instanceof Closeable) {
+      try {
+        ((Closeable) deleteFunc).close();
+      } catch (IOException e) {
+        Preconditions.checkState(false, "Closing delete func doesn't throw");
+      }
+    }
   }
 
   protected boolean hasAnyStatisticsFiles(TableMetadata tableMetadata) {

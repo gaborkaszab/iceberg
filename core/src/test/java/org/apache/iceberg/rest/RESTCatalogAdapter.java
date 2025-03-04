@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.hc.core5.http.HttpStatus;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.Table;
@@ -46,11 +48,14 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.exceptions.NotModifiedException;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.UnprocessableEntityException;
 import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.base.Splitter;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.auth.AuthSession;
@@ -82,6 +87,7 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
 
   private static final Map<Class<? extends Exception>, Integer> EXCEPTION_ERROR_CODES =
       ImmutableMap.<Class<? extends Exception>, Integer>builder()
+          .put(NotModifiedException.class, 304)
           .put(IllegalArgumentException.class, 400)
           .put(ValidationException.class, 400)
           .put(NamespaceNotEmptyException.class, 409)
@@ -285,6 +291,9 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
     return this;
   }
 
+  // TODO gaborkaszab: No freshness-aware loading for metadata tables
+  // TODO gaborkaszab: No freshness-aware loading for views
+
   @SuppressWarnings({"MethodLength", "checkstyle:CyclomaticComplexity"})
   public <T extends RESTResponse> T handleRequest(
       Route route,
@@ -394,11 +403,13 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
           CreateTableRequest request = castRequest(CreateTableRequest.class, body);
           request.validate();
           if (request.stageCreate()) {
+            // TODO gaborkaszab: can I return ETag with stageCreate?
             return castResponse(
                 responseType, CatalogHandlers.stageTableCreate(catalog, namespace, request));
           } else {
-            return castResponse(
-                responseType, CatalogHandlers.createTable(catalog, namespace, request));
+            LoadTableResponse resp = CatalogHandlers.createTable(catalog, namespace, request);
+            responseHeaders.accept(Map.of(HttpHeaders.ETAG, ETag.of(resp)));
+            return castResponse(responseType, resp);
           }
         }
 
@@ -422,22 +433,47 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
       case LOAD_TABLE:
         {
           TableIdentifier ident = tableIdentFromPathVars(vars);
-          return castResponse(responseType, CatalogHandlers.loadTable(catalog, ident));
+          LoadTableResponse resp = CatalogHandlers.loadTable(catalog, ident);
+
+          if (httpRequest.headers().contains(HttpHeaders.IF_NONE_MATCH)) {
+            HTTPHeaders.HTTPHeader ifNoneMatchHeader =
+                Iterables.getOnlyElement(httpRequest.headers().entries(HttpHeaders.IF_NONE_MATCH));
+            Preconditions.checkNotNull(ifNoneMatchHeader, "If-None-Match header is null");
+
+            if (ifNoneMatchHeader.value().equals(ETag.of(resp))) {
+              throw new NotModifiedException("Table %s is not modified", ident.toString());
+            }
+          }
+
+          responseHeaders.accept(Map.of(HttpHeaders.ETAG, ETag.of(resp)));
+
+          return castResponse(responseType, resp);
         }
 
       case REGISTER_TABLE:
         {
-          Namespace namespace = namespaceFromPathVars(vars);
-          RegisterTableRequest request = castRequest(RegisterTableRequest.class, body);
-          return castResponse(
-              responseType, CatalogHandlers.registerTable(catalog, namespace, request));
+          LoadTableResponse resp =
+              CatalogHandlers.registerTable(
+                  catalog,
+                  namespaceFromPathVars(vars),
+                  castRequest(RegisterTableRequest.class, body));
+
+          responseHeaders.accept(Map.of(HttpHeaders.ETAG, ETag.of(resp)));
+
+          return castResponse(responseType, resp);
         }
 
       case UPDATE_TABLE:
         {
-          TableIdentifier ident = tableIdentFromPathVars(vars);
-          UpdateTableRequest request = castRequest(UpdateTableRequest.class, body);
-          return castResponse(responseType, CatalogHandlers.updateTable(catalog, ident, request));
+          LoadTableResponse resp =
+              CatalogHandlers.updateTable(
+                  catalog,
+                  tableIdentFromPathVars(vars),
+                  castRequest(UpdateTableRequest.class, body));
+
+          responseHeaders.accept(Map.of(HttpHeaders.ETAG, ETag.of(resp)));
+
+          return castResponse(responseType, resp);
         }
 
       case RENAME_TABLE:
@@ -547,6 +583,18 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
     return null;
   }
 
+  // TODO gaborkaszab: Find a common place for this
+  // TODO gaborkaszab: Return a hash of location? Make sure it's deterministic!
+  static class ETag {
+    public static String of(LoadTableResponse resp) {
+      return resp.metadataLocation();
+    }
+
+    public static String of(Table tbl) {
+      return tbl.location();
+    }
+  }
+
   /**
    * This is a very simplistic approach that only validates the requirements for each table and does
    * not do any other conflict detection. Therefore, it does not guarantee true transactional
@@ -635,6 +683,10 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
 
     ErrorResponse error = errorBuilder.build();
     errorHandler.accept(error);
+
+    if (error.code() == HttpStatus.SC_NOT_MODIFIED) {
+      return null;
+    }
 
     // if the error handler doesn't throw an exception, throw a generic one
     throw new RESTException("Unhandled error: %s", error);

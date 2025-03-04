@@ -35,6 +35,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.iceberg.exceptions.NotModifiedException;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
@@ -105,12 +106,17 @@ public class RESTCatalogServlet extends HttpServlet {
               context.headers(),
               context.body());
 
-      Map<String, String> responseHeaders = Maps.newHashMap();
-      Object responseBody =
-          restCatalogAdapter.execute(
-              request, context.route().responseClass(), handle(response), responseHeaders::putAll);
+      Object responseBody = null;
+      try {
+        Map<String, String> responseHeaders = Maps.newHashMap();
+        responseBody =
+            restCatalogAdapter.execute(
+                request, context.route().responseClass(), handle(response), responseHeaders::putAll);
 
-      responseHeaders.forEach(response::setHeader);
+        responseHeaders.forEach(response::setHeader);
+      } catch (NotModifiedException e) {
+        response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+      }
 
       if (responseBody != null) {
         RESTObjectMapper.mapper().writeValue(response.getWriter(), responseBody);

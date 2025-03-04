@@ -156,7 +156,8 @@ public class HTTPClient extends BaseHTTPClient {
     int code = response.getCode();
     return code == HttpStatus.SC_OK
         || code == HttpStatus.SC_ACCEPTED
-        || code == HttpStatus.SC_NO_CONTENT;
+        || code == HttpStatus.SC_NO_CONTENT
+        || code == HttpStatus.SC_NOT_MODIFIED;
   }
 
   private static ErrorResponse buildDefaultErrorResponse(CloseableHttpResponse response) {
@@ -301,6 +302,9 @@ public class HTTPClient extends BaseHTTPClient {
       }
 
       if (responseBody == null) {
+        if (response.getCode() == HttpStatus.SC_NOT_MODIFIED) {
+          return null;
+        }
         throw new RESTException(
             "Invalid (null) response body for request (expected %s): method=%s, path=%s, status=%d",
             responseType.getSimpleName(), req.method(), req.path(), response.getCode());

@@ -42,6 +42,8 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
@@ -63,6 +65,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.exceptions.NotModifiedException;
 import org.apache.iceberg.exceptions.ServiceFailureException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -2668,6 +2671,130 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
     // simulate a legacy server that doesn't send back supported endpoints, thus the
     // client relies on the default endpoints
     verifyTableExistsFallbackToGETRequest(ConfigResponse.builder().build());
+  }
+
+  @Test
+  public void testETagResponseHeader() {
+    Map<String, String> respHeaders = Maps.newHashMap();
+
+    RESTCatalogAdapter adapter =
+        new RESTCatalogAdapter(backendCatalog) {
+          @Override
+          public <T extends RESTResponse> T handleRequest(
+              Route route,
+              Map<String, String> vars,
+              HTTPRequest httpRequest,
+              Class<T> responseType,
+              Consumer<Map<String, String>> responseHeaders) {
+            return super.handleRequest(route, vars, httpRequest, responseType, respHeaders::putAll);
+          }
+        };
+
+    RESTCatalog catalog = catalog(adapter);
+
+    if (requiresNamespaceCreate()) {
+      catalog.createNamespace(TABLE.namespace());
+    }
+
+    assertThat(respHeaders).isEmpty();
+
+    catalog.createTable(TABLE, SCHEMA);
+
+    assertThat(respHeaders.keySet()).containsExactly(HttpHeaders.ETAG);
+
+    respHeaders.clear();
+
+    catalog.loadTable(TABLE);
+
+    assertThat(respHeaders.keySet()).containsExactly(HttpHeaders.ETAG);
+
+    // TODO gaborkaszab: add other cases where ETag is populated
+  }
+
+  @Test
+  public void testTableNotModified() {
+    RESTCatalogAdapter adapter = Mockito.spy(new RESTCatalogAdapter(backendCatalog));
+
+    RESTCatalog catalog = catalog(adapter);
+
+    if (requiresNamespaceCreate()) {
+      catalog.createNamespace(TABLE.namespace());
+    }
+
+    catalog.createTable(TABLE, SCHEMA);
+
+    catalog.loadTable(TABLE);
+
+    Mockito.verify(adapter)
+        .handleRequest(
+            eq(RESTCatalogAdapter.Route.LOAD_TABLE),
+            anyMap(),
+            any(),
+            eq(LoadTableResponse.class),
+            any());
+  }
+
+  @Test
+  public void randomTestToSeeServletResposne() {
+    if (requiresNamespaceCreate()) {
+      catalog().createNamespace(TABLE.namespace());
+    }
+
+    catalog().createTable(TABLE, SCHEMA);
+
+    // TODO gaborkaszab: when going through RESTCatalogServlet we get an "Error processing REST
+    // request" exception. This isn't desired. We should get an HTTP response with empty body and
+    // 304 code.
+    catalog().loadTable(TABLE);
+  }
+
+  // TODO gaborkaszab: find another name. This is not the whole freshness-aware loading
+  // functionality.
+  @Test
+  public void testFreshnessAwareLoading() {
+    if (requiresNamespaceCreate()) {
+      catalog().createNamespace(TABLE.namespace());
+    }
+
+    BaseTable tbl = (BaseTable) catalog().createTable(TABLE, SCHEMA);
+
+    //assertThat(respHeaders.keySet()).containsExactly(HttpHeaders.ETAG);
+
+    catalog().loadTable(TABLE);
+
+    // =======
+
+    // TODO gaborkaszab: Probably no need to catch respHeaders here.
+    /* RESTCatalogAdapter adapter2 =
+        new RESTCatalogAdapter(backendCatalog) {
+          @Override
+          public <T extends RESTResponse> T handleRequest(
+              Route route,
+              Map<String, String> vars,
+              HTTPRequest httpRequest,
+              Class<T> responseType,
+              Consumer<Map<String, String>> responseHeaders) {
+            HTTPHeaders newHeaders =
+                httpRequest
+                    .headers()
+                    .putIfAbsent(
+                        HTTPHeaders.of(
+                            Map.of(HttpHeaders.IF_NONE_MATCH, respHeaders.get(HttpHeaders.ETAG))));
+            HTTPRequest newHTTPRequest =
+                ImmutableHTTPRequest.builder().from(httpRequest).headers(newHeaders).build();
+            return super.handleRequest(
+                route, vars, newHTTPRequest, responseType, respHeaders::putAll);
+          }
+        };
+
+    RESTCatalog catalog2 = catalog(adapter2);
+
+    String location = tbl.operations().current().metadataFileLocation();
+
+    TableIdentifier table2 = TableIdentifier.of(NS, "table2");
+    catalog2.registerTable(table2, location);
+
+    catalog2.loadTable(table2);*/
   }
 
   private RESTCatalog catalog(RESTCatalogAdapter adapter) {

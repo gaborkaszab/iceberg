@@ -42,6 +42,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
@@ -66,12 +67,14 @@ import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.exceptions.ServiceFailureException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.RESTSessionCatalog.SnapshotMode;
+import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.auth.AuthSessionUtil;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.iceberg.rest.auth.OAuth2Util;
@@ -2052,6 +2055,69 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
 
     assertThat(catalog().loadTable(identifier2).schema().asStruct())
         .isEqualTo(expectedSchema2.asStruct());
+  }
+
+  @Test
+  public void someTest() {
+    Map<String, String> responseHeaders = Maps.newHashMap();
+
+    Map<String, String> properties =
+        ImmutableMap.of(
+            CatalogProperties.URI,
+            httpServer.getURI().toString(),
+            CatalogProperties.FILE_IO_IMPL,
+            "org.apache.iceberg.inmemory.InMemoryFileIO",
+            "credential",
+            "catalog:12345");
+
+    // HTTPClient client =
+    // Mockito.spy(HTTPClient.builder(properties).uri(properties.get(CatalogProperties.URI)).build());
+    // doReturn(client).when(client).withAuthSession(any());
+
+    RESTCatalog catalog =
+        new RESTCatalog(
+            new SessionCatalog.SessionContext(
+                UUID.randomUUID().toString(),
+                "user",
+                ImmutableMap.of("credential", "user:12345"),
+                ImmutableMap.of()),
+            // (config) -> client);
+            (config) ->
+                new HTTPClient(
+                    HTTPClient.builder(config).uri(config.get(CatalogProperties.URI)).build(),
+                    null) {
+                  @Override
+                  public <T extends RESTResponse> T get(
+                      String path,
+                      Map<String, String> queryParams,
+                      Class<T> responseType,
+                      Map<String, String> headers,
+                      Consumer<ErrorResponse> errorHandler) {
+                    HTTPRequest request =
+                        buildRequest(HTTPMethod.GET, path, queryParams, headers, null);
+                    return execute(request, responseType, errorHandler, responseHeaders::putAll);
+                  }
+
+                  @Override
+                  public HTTPClient withAuthSession(AuthSession session) {
+                    Preconditions.checkNotNull(session, "Invalid auth session: null");
+                    this.authSession = session;
+                    return this;
+                  }
+                });
+
+    catalog.initialize("test", properties);
+
+    Namespace namespace = Namespace.of("multiDiffNamespace");
+    TableIdentifier identifier1 = TableIdentifier.of(namespace, "multiDiffTable1");
+
+    catalog.createNamespace(namespace);
+
+    catalog.createTable(identifier1, SCHEMA);
+
+    catalog.loadTable(identifier1);
+
+    assertThat(responseHeaders.keySet()).contains(HttpHeaders.CONTENT_TYPE);
   }
 
   @Test

@@ -113,6 +113,8 @@ class IncrementalFileCleanup extends FileCleanupStrategy {
     Set<String> validManifests = Sets.newHashSet();
     Set<ManifestFile> manifestsToScan = Sets.newHashSet();
 
+    Set<Long> followingSnapshotsAfterInvalid = Sets.newHashSet();
+
     // Reads and deletes are done using Tasks.foreach(...).suppressFailureWhenFinished to complete
     // as much of the delete work as possible and avoid orphaned data or manifest files.
     Tasks.foreach(snapshots)
@@ -145,7 +147,11 @@ class IncrementalFileCleanup extends FileCleanupStrategy {
                   // then delete its deleted files. note that this is only for expired snapshots
                   // that are in the
                   // current table state
-                  if (!fromValidSnapshots
+                  if (fromValidSnapshots && expiredIds.contains(snapshot.parentId())) {
+                    followingSnapshotsAfterInvalid.add(snapshot.snapshotId());
+                  }
+
+                  if ((!fromValidSnapshots || expiredIds.contains(snapshot.parentId()))
                       && (isFromAncestor || isPicked)
                       && manifest.hasDeletedFiles()) {
                     manifestsToScan.add(manifest.copy());
@@ -258,7 +264,7 @@ class IncrementalFileCleanup extends FileCleanupStrategy {
 
     Set<String> filesToDelete =
         findFilesToDelete(
-            manifestsToScan, manifestsToRevert, validIds, beforeExpiration.specsById());
+            manifestsToScan, manifestsToRevert, validIds, followingSnapshotsAfterInvalid, beforeExpiration.specsById());
 
     deleteFiles(filesToDelete, "data");
     deleteFiles(manifestsToDelete, "manifest");
@@ -275,6 +281,7 @@ class IncrementalFileCleanup extends FileCleanupStrategy {
       Set<ManifestFile> manifestsToScan,
       Set<ManifestFile> manifestsToRevert,
       Set<Long> validIds,
+      Set<Long> followingIDsAfterExpired,
       Map<Integer, PartitionSpec> specsById) {
     Set<String> filesToDelete = ConcurrentHashMap.newKeySet();
     Tasks.foreach(manifestsToScan)
@@ -292,7 +299,7 @@ class IncrementalFileCleanup extends FileCleanupStrategy {
                   // if the snapshot ID of the DELETE entry is no longer valid, the data can be
                   // deleted
                   if (entry.status() == ManifestEntry.Status.DELETED
-                      && !validIds.contains(entry.snapshotId())) {
+                      && (!validIds.contains(entry.snapshotId()) || followingIDsAfterExpired.contains(entry.snapshotId()))) {
                     // use toString to ensure the path will not change (Utf8 is reused)
                     filesToDelete.add(entry.file().location());
                   }

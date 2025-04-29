@@ -103,6 +103,23 @@ public class TestRemoveSnapshots extends TestBase {
     assertThat(deletedFiles).containsExactly(firstSnapshot.manifestListLocation());
   }
 
+  /* @TestTemplate
+  public void testSomething() {
+    table.newAppend().appendFile(FILE_A).commit();
+    table.newAppend().appendFile(FILE_B).commit();
+    table.newAppend().appendFile(FILE_C).commit();
+
+    table.newDelete().deleteFromRowFilter(Expressions.alwaysTrue()).commit();
+
+    long tAfterCommits = waitUntilAfter(table.currentSnapshot().timestampMillis());
+
+    Set<String> deletedFiles = Sets.newHashSet();
+
+    removeSnapshots(table).expireOlderThan(tAfterCommits).deleteWith(deletedFiles::add).commit();
+
+    assertThat(deletedFiles).containsExactly("something");
+  }*/
+
   @TestTemplate
   public void testExpireOlderThanWithDelete() {
     table.newAppend().appendFile(FILE_A).commit();

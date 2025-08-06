@@ -40,10 +40,13 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.UnboundPartitionSpec;
 import org.apache.iceberg.UnboundSortOrder;
+import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.TableIdentifierParser;
 import org.apache.iceberg.rest.auth.OAuth2Util;
+import org.apache.iceberg.rest.credentials.Credential;
+import org.apache.iceberg.rest.credentials.CredentialParser;
 import org.apache.iceberg.rest.requests.CommitTransactionRequest;
 import org.apache.iceberg.rest.requests.CommitTransactionRequestParser;
 import org.apache.iceberg.rest.requests.CreateViewRequest;
@@ -75,6 +78,7 @@ import org.apache.iceberg.rest.responses.LoadCredentialsResponse;
 import org.apache.iceberg.rest.responses.LoadCredentialsResponseParser;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponseParser;
+import org.apache.iceberg.rest.responses.LoadTableResponseWithStatusCode;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponseParser;
 import org.apache.iceberg.rest.responses.OAuthTokenResponse;
@@ -105,8 +109,8 @@ public class RESTSerializers {
         .addDeserializer(MetadataUpdate.class, new MetadataUpdateDeserializer())
         .addSerializer(TableMetadata.class, new TableMetadataSerializer())
         .addDeserializer(TableMetadata.class, new TableMetadataDeserializer())
-        .addSerializer(org.apache.iceberg.UpdateRequirement.class, new UpdateReqSerializer())
-        .addDeserializer(org.apache.iceberg.UpdateRequirement.class, new UpdateReqDeserializer())
+        .addSerializer(UpdateRequirement.class, new UpdateReqSerializer())
+        .addDeserializer(UpdateRequirement.class, new UpdateReqDeserializer())
         .addSerializer(OAuthTokenResponse.class, new OAuthTokenResponseSerializer())
         .addDeserializer(OAuthTokenResponse.class, new OAuthTokenResponseDeserializer())
         .addSerializer(ReportMetricsRequest.class, new ReportMetricsRequestSerializer<>())
@@ -135,6 +139,8 @@ public class RESTSerializers {
         .addDeserializer(ConfigResponse.class, new ConfigResponseDeserializer<>())
         .addSerializer(LoadTableResponse.class, new LoadTableResponseSerializer<>())
         .addDeserializer(LoadTableResponse.class, new LoadTableResponseDeserializer<>())
+        .addSerializer(LoadTableResponseWithStatusCode.class, new LoadTableResponseWithStatusCodeSerializer<>())
+        .addDeserializer(LoadTableResponseWithStatusCode.class, new LoadTableResponseWithStatusCodeDeserializer<>())
         .addSerializer(PlanTableScanRequest.class, new PlanTableScanRequestSerializer<>())
         .addDeserializer(PlanTableScanRequest.class, new PlanTableScanRequestDeserializer<>())
         .addSerializer(FetchScanTasksRequest.class, new FetchScanTasksRequestSerializer<>())
@@ -473,7 +479,35 @@ public class RESTSerializers {
     @Override
     public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
       JsonNode jsonNode = p.getCodec().readTree(p);
+      // TODO: should write serializer for the new class
       return (T) LoadTableResponseParser.fromJson(jsonNode);
+    }
+  }
+
+  static class LoadTableResponseWithStatusCodeSerializer<T extends LoadTableResponseWithStatusCode> extends JsonSerializer<T> {
+    @Override
+    public void serialize(T request, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      // TODO: should write deserializer for the new class
+      //LoadTableResponseParser.toJson(request, gen);
+      gen.writeStartObject();
+
+      gen.writeNumberField("status_code", request.statusCode());
+
+      gen.writeEndObject();
+    }
+  }
+
+  static class LoadTableResponseWithStatusCodeDeserializer<T extends LoadTableResponseWithStatusCode>
+      extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+
+      LoadTableResponse response = new LoadTableResponseWithStatusCode.Builder(JsonUtil.getInt("status_code", jsonNode)).build();
+      return (T) response;
+
+      //return (T) LoadTableResponseParser.fromJson(jsonNode);
     }
   }
 

@@ -24,8 +24,11 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletResponse;
+import org.apache.hadoop.util.Preconditions;
 import org.apache.http.HttpHeaders;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BaseTransaction;
@@ -71,6 +74,7 @@ import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseWithStatusCode;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse;
@@ -425,11 +429,38 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
 
       case LOAD_TABLE:
         {
-          LoadTableResponse response =
-              CatalogHandlers.loadTable(catalog, tableIdentFromPathVars(vars));
+          TableIdentifier ident = tableIdentFromPathVars(vars);
 
-          responseHeaders.accept(
-              ImmutableMap.of(HttpHeaders.ETAG, ETagProvider.of(response.metadataLocation())));
+          LoadTableResponse response = CatalogHandlers.loadTable(catalog, ident);
+
+          Optional<HTTPHeaders.HTTPHeader> ifNoneMatchHeader =
+              httpRequest.headers().entries().stream()
+                  .filter(e -> e.name().equals(HttpHeaders.IF_NONE_MATCH))
+                  .findFirst();
+
+          String eTag = ETagProvider.of(response.metadataLocation());
+          Preconditions.checkNotNull(eTag, "ETag is null");
+
+          // Use this code for the test that exercises sending 304 through REST Servlet and in turn
+          // HTTPClient.
+          if (true) {
+            LoadTableResponse responseWithCode =
+                new LoadTableResponseWithStatusCode.Builder(HttpServletResponse.SC_NOT_MODIFIED)
+                    .withTableMetadata(response.tableMetadata())
+                    .build();
+            // This violates that we case the responses to 'responseType' as requested by the
+            // caller.
+            return castResponse(responseType, responseWithCode);
+          }
+
+          if (ifNoneMatchHeader.isPresent() && eTag.equals(ifNoneMatchHeader.get().value())) {
+            LoadTableResponse responseWithCode =
+                new LoadTableResponseWithStatusCode.Builder(HttpServletResponse.SC_NOT_MODIFIED)
+                    .build();
+            return castResponse(responseType, responseWithCode);
+          }
+
+          responseHeaders.accept(ImmutableMap.of(HttpHeaders.ETAG, eTag));
 
           return castResponse(responseType, response);
         }

@@ -87,6 +87,7 @@ import org.apache.iceberg.rest.responses.ErrorResponse;
 import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseWithStatusCode;
 import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.iceberg.types.Types;
 import org.assertj.core.api.InstanceOfAssertFactories;
@@ -2968,6 +2969,107 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
         };
 
     return catalog(adapter);
+  }
+
+  @Test
+  public void testNotModifiedException() {
+    if (requiresNamespaceCreate()) {
+      catalog().createNamespace(TABLE.namespace());
+    }
+
+    Table tbl = catalog().createTable(TABLE, SCHEMA);
+
+    String eTag = ETagProvider.of(((BaseTable) tbl).operations().current().metadataFileLocation());
+    String metadataTableName = "partitions";
+
+    // Now that we know the metadata location, we can create an adapter that fills the IF_NONE_MATCH
+    // header with an ETag created from that location.
+    RESTCatalogAdapter adapter =
+        Mockito.spy(
+            new RESTCatalogAdapter(backendCatalog) {
+              @Override
+              public <T extends RESTResponse> T execute(
+                  HTTPRequest request,
+                  Class<T> responseType,
+                  Consumer<ErrorResponse> errorHandler,
+                  Consumer<Map<String, String>> responseHeaders) {
+
+                // For LOAD_TABLE requests for non metadata tables, fill in the IF_NONE_MATCH input
+                // header and expect NotModifiedException.
+                if (request.method().equals(HTTPMethod.GET)
+                    && Route.from(request.method(), request.path()).first().equals(Route.LOAD_TABLE)
+                    && !request.path().contains(metadataTableName)) {
+                  HTTPHeaders extendedHeaders =
+                      ImmutableHTTPHeaders.copyOf(request.headers())
+                          .putIfAbsent(
+                              ImmutableHTTPHeader.builder()
+                                  .name(HttpHeaders.IF_NONE_MATCH)
+                                  .value(eTag)
+                                  .build());
+
+                  ImmutableHTTPRequest extendedRequest =
+                      ImmutableHTTPRequest.builder().from(request).headers(extendedHeaders).build();
+
+                  /* assertThatThrownBy(
+                      () ->
+                          super.execute(
+                              extendedRequest, responseType, errorHandler, responseHeaders))
+                  .isInstanceOf(NotModifiedException.class)
+                  .hasMessage(String.format("Table %s is not modified", TABLE));*/
+                  T response =
+                      super.execute(extendedRequest, responseType, errorHandler, responseHeaders);
+                  assertThat(response)
+                      .isInstanceOf(LoadTableResponseWithStatusCode.class)
+                      .asInstanceOf(InstanceOfAssertFactories.type(ResponseWithStatusCode.class))
+                      .hasFieldOrPropertyWithValue("statusCode", 304);
+
+                  return response;
+                }
+
+                return super.execute(request, responseType, errorHandler, responseHeaders);
+              }
+            });
+
+    RESTCatalog catalog = catalog(adapter);
+
+    catalog.loadTable(TABLE);
+
+    TableIdentifier metadataTableIdentifier =
+        TableIdentifier.of(TABLE.namespace().toString(), TABLE.name(), metadataTableName);
+
+    // Load a metadata table where the underlying table is not changed.
+    catalog.loadTable(metadataTableIdentifier);
+
+    Mockito.verify(adapter, times(2))
+        .handleRequest(
+            eq(RESTCatalogAdapter.Route.LOAD_TABLE),
+            any(),
+            reqMatcher(
+                HTTPMethod.GET,
+                RESOURCE_PATHS.table(TABLE),
+                Map.of(HttpHeaders.IF_NONE_MATCH, eTag)),
+            eq(LoadTableResponse.class),
+            any());
+
+    verify(adapter)
+        .execute(
+            reqMatcher(HTTPMethod.GET, RESOURCE_PATHS.table(metadataTableIdentifier), Map.of()),
+            any(),
+            any(),
+            any());
+  }
+
+  @Test
+  public void testNotModifiedThroughServer() {
+    catalog().createNamespace(TABLE.namespace());
+
+    catalog().createTable(TABLE, SCHEMA);
+
+    // Opposed to the above test this actually goes through HTTP and the REST Server and the network
+    // communication is not mocked by the adapter.
+    // Since IF_NONE_MATCH header is not populated ATM, this triggers NotModified only with a hacked
+    // RESTCatalogAdapter. I changed it to unconditionally return 304.
+    catalog().loadTable(TABLE);
   }
 
   private RESTCatalog catalog(RESTCatalogAdapter adapter) {

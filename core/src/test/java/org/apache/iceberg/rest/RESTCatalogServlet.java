@@ -42,6 +42,7 @@ import org.apache.iceberg.relocated.com.google.common.io.CharStreams;
 import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.RESTCatalogAdapter.Route;
 import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseWithStatusCode;
 import org.apache.iceberg.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,6 +113,13 @@ public class RESTCatalogServlet extends HttpServlet {
               request, context.route().responseClass(), handle(response), responseHeaders::putAll);
 
       responseHeaders.forEach(response::setHeader);
+
+      if (responseBody instanceof LoadTableResponseWithStatusCode &&
+          ((LoadTableResponseWithStatusCode) responseBody).statusCode() == 304) {
+        // rest of the response body should be null
+        // this could be more general to take care 204 as well
+        response.setStatus(304);
+      }
 
       if (responseBody != null) {
         RESTObjectMapper.mapper().writeValue(response.getWriter(), responseBody);

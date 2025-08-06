@@ -85,6 +85,7 @@ import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseWithStatusCode;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse;
 import org.apache.iceberg.util.EnvironmentUtil;
@@ -382,7 +383,7 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
         .get(
             paths.table(identifier),
             snapshotModeToParam(mode),
-            LoadTableResponse.class,
+            LoadTableResponseWithStatusCode.class,
             Map.of(),
             ErrorHandlers.tableErrorHandler());
   }
@@ -404,6 +405,19 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
     TableIdentifier loadedIdent;
     try {
       response = loadInternal(context, identifier, snapshotMode);
+
+      // This is returned when RESTCatalogAdapter is wired directly
+      if (response instanceof LoadTableResponseWithStatusCode) {
+        if (((LoadTableResponseWithStatusCode) response).statusCode() == 304) {
+          // answer from cache
+        }
+      }
+
+      // This is returned when the request goes through HttpClient and REST servlet
+      if (response == null) {
+        // answer from cache
+      }
+
       loadedIdent = identifier;
       metadataType = null;
 
@@ -414,6 +428,19 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
         TableIdentifier baseIdent = TableIdentifier.of(identifier.namespace().levels());
         try {
           response = loadInternal(context, baseIdent, snapshotMode);
+
+          // This is returned when RESTCatalogAdapter is wired directly
+          if (response instanceof LoadTableResponseWithStatusCode) {
+            if (((LoadTableResponseWithStatusCode) response).statusCode() == 304) {
+              // answer from cache
+            }
+          }
+
+          // This is returned when the request goes through HttpClient and REST servlet
+          if (response == null) {
+            // answer from cache
+          }
+
           loadedIdent = baseIdent;
         } catch (NoSuchTableException ignored) {
           // the base table does not exist

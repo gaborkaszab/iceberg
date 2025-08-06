@@ -50,7 +50,7 @@ public class LoadTableResponse implements RESTResponse {
     // Required for Jackson deserialization
   }
 
-  private LoadTableResponse(
+  protected LoadTableResponse(
       String metadataLocation,
       TableMetadata metadata,
       Map<String, String> config,
@@ -106,7 +106,7 @@ public class LoadTableResponse implements RESTResponse {
     private final Map<String, String> config = Maps.newHashMap();
     private final List<Credential> credentials = Lists.newArrayList();
 
-    private Builder() {}
+    protected Builder() {}
 
     public Builder withTableMetadata(TableMetadata tableMetadata) {
       this.metadataLocation = tableMetadata.metadataFileLocation();
@@ -132,6 +132,22 @@ public class LoadTableResponse implements RESTResponse {
     public Builder addAllCredentials(List<Credential> credentialsToAdd) {
       credentials.addAll(credentialsToAdd);
       return this;
+    }
+
+    public String metadataLocation() {
+      return metadataLocation;
+    }
+
+    public TableMetadata metadata() {
+      return metadata;
+    }
+
+    public Map<String, String> config() {
+      return config;
+    }
+
+    public List<Credential> credentials() {
+      return credentials;
     }
 
     public LoadTableResponse build() {

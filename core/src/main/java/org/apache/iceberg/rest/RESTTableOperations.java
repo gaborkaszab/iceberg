@@ -24,6 +24,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.iceberg.LocationProviders;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.TableMetadata;
@@ -36,7 +37,9 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.responses.ErrorResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
@@ -58,8 +61,10 @@ class RESTTableOperations implements TableOperations {
   private final List<MetadataUpdate> createChanges;
   private final TableMetadata replaceBase;
   private final Set<Endpoint> endpoints;
+  private final Consumer<RESTTableOperations> loadTableCallback;
   private UpdateType updateType;
   private TableMetadata current;
+  private String eTag;
 
   RESTTableOperations(
       RESTClient client,
@@ -67,8 +72,20 @@ class RESTTableOperations implements TableOperations {
       Supplier<Map<String, String>> headers,
       FileIO io,
       TableMetadata current,
-      Set<Endpoint> endpoints) {
-    this(client, path, headers, io, UpdateType.SIMPLE, Lists.newArrayList(), current, endpoints);
+      Set<Endpoint> endpoints,
+      String eTag,
+      Consumer<RESTTableOperations> loadTableCallback) {
+    this(
+        client,
+        path,
+        headers,
+        io,
+        UpdateType.SIMPLE,
+        Lists.newArrayList(),
+        current,
+        endpoints,
+        eTag,
+        loadTableCallback);
   }
 
   RESTTableOperations(
@@ -79,7 +96,9 @@ class RESTTableOperations implements TableOperations {
       UpdateType updateType,
       List<MetadataUpdate> createChanges,
       TableMetadata current,
-      Set<Endpoint> endpoints) {
+      Set<Endpoint> endpoints,
+      String eTag,
+      Consumer<RESTTableOperations> loadTableCallback) {
     this.client = client;
     this.path = path;
     this.headers = headers;
@@ -93,6 +112,22 @@ class RESTTableOperations implements TableOperations {
       this.current = current;
     }
     this.endpoints = endpoints;
+    this.loadTableCallback = loadTableCallback;
+    this.eTag = eTag;
+  }
+
+  RESTTableOperations(RESTTableOperations other) {
+    this(
+        other.client,
+        other.path,
+        other.headers,
+        other.io,
+        other.updateType,
+        other.createChanges,
+        other.current,
+        other.endpoints,
+        other.eTag,
+        other.loadTableCallback);
   }
 
   @Override
@@ -103,8 +138,19 @@ class RESTTableOperations implements TableOperations {
   @Override
   public TableMetadata refresh() {
     Endpoint.check(endpoints, Endpoint.V1_LOAD_TABLE);
-    return updateCurrentMetadata(
-        client.get(path, LoadTableResponse.class, headers, ErrorHandlers.tableErrorHandler()));
+
+    Map<String, String> responseHeaders = Maps.newHashMap();
+
+    LoadTableResponse response =
+        client.get(
+            path,
+            ImmutableMap.of(),
+            LoadTableResponse.class,
+            headers,
+            ErrorHandlers.tableErrorHandler(),
+            responseHeaders::putAll);
+
+    return updateCurrentMetadata(response, responseHeaders.getOrDefault(HttpHeaders.ETAG, null));
   }
 
   @Override
@@ -152,16 +198,18 @@ class RESTTableOperations implements TableOperations {
 
     UpdateTableRequest request = new UpdateTableRequest(requirements, updates);
 
+    Map<String, String> responseHeaders = Maps.newHashMap();
     // the error handler will throw necessary exceptions like CommitFailedException and
     // UnknownCommitStateException
     // TODO: ensure that the HTTP client lib passes HTTP client errors to the error handler
     LoadTableResponse response =
-        client.post(path, request, LoadTableResponse.class, headers, errorHandler);
+        client.post(
+            path, request, LoadTableResponse.class, headers, errorHandler, responseHeaders::putAll);
 
     // all future commits should be simple commits
     this.updateType = UpdateType.SIMPLE;
 
-    updateCurrentMetadata(response);
+    updateCurrentMetadata(response, responseHeaders.getOrDefault(HttpHeaders.ETAG, null));
   }
 
   @Override
@@ -169,13 +217,19 @@ class RESTTableOperations implements TableOperations {
     return io;
   }
 
-  private TableMetadata updateCurrentMetadata(LoadTableResponse response) {
+  private TableMetadata updateCurrentMetadata(LoadTableResponse response, String newETag) {
     // LoadTableResponse is used to deserialize the response, but config is not allowed by the REST
     // spec so it can be
     // safely ignored. there is no requirement to update config on refresh or commit.
     if (current == null
         || !Objects.equals(current.metadataFileLocation(), response.metadataLocation())) {
       this.current = response.tableMetadata();
+
+      this.eTag = newETag;
+    }
+
+    if (loadTableCallback != null) {
+      loadTableCallback.accept(this);
     }
 
     return current;
@@ -189,6 +243,10 @@ class RESTTableOperations implements TableOperations {
     } else {
       return String.format("%s/%s/%s", metadata.location(), METADATA_FOLDER_NAME, filename);
     }
+  }
+
+  public String eTag() {
+    return eTag;
   }
 
   @Override

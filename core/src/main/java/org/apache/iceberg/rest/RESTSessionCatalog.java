@@ -404,6 +404,9 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
     TableIdentifier loadedIdent;
     try {
       response = loadInternal(context, identifier, snapshotMode);
+      if (response == null) {
+        // TODO: it was a 304, answer from cache
+      }
       loadedIdent = identifier;
       metadataType = null;
 
@@ -414,6 +417,9 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
         TableIdentifier baseIdent = TableIdentifier.of(identifier.namespace().levels());
         try {
           response = loadInternal(context, baseIdent, snapshotMode);
+          if (response == null) {
+            // TODO: it was a 304, answer from cache
+          }
           loadedIdent = baseIdent;
         } catch (NoSuchTableException ignored) {
           // the base table does not exist

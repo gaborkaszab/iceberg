@@ -2954,6 +2954,96 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
     assertThat(respHeaders).containsEntry(HttpHeaders.ETAG, eTag);
   }
 
+  @Test
+  public void testNotModified() {
+    catalog().createNamespace(TABLE.namespace());
+
+    Table table = catalog().createTable(TABLE, SCHEMA);
+
+    String eTag =
+        ETagProvider.of(((BaseTable) table).operations().current().metadataFileLocation());
+    String metadataTableName = "partitions";
+
+    RESTCatalogAdapter adapter =
+        Mockito.spy(
+            new RESTCatalogAdapter(backendCatalog) {
+              @Override
+              public <T extends RESTResponse> T execute(
+                  HTTPRequest request,
+                  Class<T> responseType,
+                  Consumer<ErrorResponse> errorHandler,
+                  Consumer<Map<String, String>> responseHeaders) {
+
+                // For LOAD_TABLE requests for non metadata tables, fill in the IF_NONE_MATCH input
+                // header.
+                if (Route.from(request.method(), request.path()).first().equals(Route.LOAD_TABLE)
+                    && !request.path().contains(metadataTableName)) {
+                  HTTPHeaders extendedHeaders =
+                      ImmutableHTTPHeaders.copyOf(request.headers())
+                          .putIfAbsent(
+                              ImmutableHTTPHeader.builder()
+                                  .name(HttpHeaders.IF_NONE_MATCH)
+                                  .value(eTag)
+                                  .build());
+
+                  ImmutableHTTPRequest extendedRequest =
+                      ImmutableHTTPRequest.builder().from(request).headers(extendedHeaders).build();
+
+                  assertThat(
+                          super.execute(
+                              extendedRequest, responseType, errorHandler, responseHeaders))
+                      .isNull();
+
+                  return null;
+                }
+
+                return super.execute(request, responseType, errorHandler, responseHeaders);
+              }
+            });
+
+    RESTCatalog catalog = catalog(adapter);
+
+    // TODO: This won't throw when client side of freshness-aware loading is implemented
+    assertThatThrownBy(() -> catalog.loadTable(TABLE)).isInstanceOf(NullPointerException.class);
+
+    TableIdentifier metadataTableIdentifier =
+        TableIdentifier.of(TABLE.namespace().toString(), TABLE.name(), metadataTableName);
+
+    // TODO: This won't throw when client side of freshness-aware loading is implemented
+    assertThatThrownBy(() -> catalog.loadTable(metadataTableIdentifier))
+        .isInstanceOf(NullPointerException.class);
+
+    Mockito.verify(adapter, times(2))
+        .handleRequest(
+            eq(RESTCatalogAdapter.Route.LOAD_TABLE),
+            any(),
+            reqMatcher(
+                HTTPMethod.GET,
+                RESOURCE_PATHS.table(TABLE),
+                Map.of(HttpHeaders.IF_NONE_MATCH, eTag)),
+            eq(LoadTableResponse.class),
+            any());
+
+    verify(adapter)
+        .execute(
+            reqMatcher(HTTPMethod.GET, RESOURCE_PATHS.table(metadataTableIdentifier), Map.of()),
+            any(),
+            any(),
+            any());
+  }
+
+  @Test
+  public void testNotModifiedThroughServer() {
+    // The IF_NONE_MATCH header is not populated now, so this triggers 304 with a hacked
+    // RESTCatalogAdapter only. Currently, there is no way to inject a custom RESTClient into
+    // RESTSessionCatalog that communicates with REST server.
+    catalog().createNamespace(TABLE.namespace());
+
+    catalog().createTable(TABLE, SCHEMA);
+
+    catalog().loadTable(TABLE);
+  }
+
   private RESTCatalog catalogWithResponseHeaders(Map<String, String> respHeaders) {
     RESTCatalogAdapter adapter =
         new RESTCatalogAdapter(backendCatalog) {

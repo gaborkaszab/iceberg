@@ -180,7 +180,8 @@ public class HTTPClient extends BaseHTTPClient {
     int code = response.getCode();
     return code == HttpStatus.SC_OK
         || code == HttpStatus.SC_ACCEPTED
-        || code == HttpStatus.SC_NO_CONTENT;
+        || code == HttpStatus.SC_NO_CONTENT
+        || code == HttpStatus.SC_NOT_MODIFIED;
   }
 
   private static ErrorResponse buildDefaultErrorResponse(CloseableHttpResponse response) {
@@ -325,6 +326,7 @@ public class HTTPClient extends BaseHTTPClient {
 
       // Skip parsing the response stream for any successful request not expecting a response body
       if (response.getCode() == HttpStatus.SC_NO_CONTENT
+          || response.getCode() == HttpStatus.SC_NOT_MODIFIED
           || (responseType == null && isSuccessful(response))) {
         return null;
       }

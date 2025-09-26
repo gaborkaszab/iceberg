@@ -24,6 +24,7 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.apache.http.HttpHeaders;
@@ -50,6 +51,7 @@ import org.apache.iceberg.exceptions.NotAuthorizedException;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.UnprocessableEntityException;
 import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.base.Splitter;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -425,11 +427,27 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
 
       case LOAD_TABLE:
         {
-          LoadTableResponse response =
-              CatalogHandlers.loadTable(catalog, tableIdentFromPathVars(vars));
+          TableIdentifier ident = tableIdentFromPathVars(vars);
 
-          responseHeaders.accept(
-              ImmutableMap.of(HttpHeaders.ETAG, ETagProvider.of(response.metadataLocation())));
+          LoadTableResponse response = CatalogHandlers.loadTable(catalog, ident);
+
+          Optional<HTTPHeaders.HTTPHeader> ifNoneMatchHeader =
+              httpRequest.headers().entries().stream()
+                  .filter(e -> e.name().equals(HttpHeaders.IF_NONE_MATCH))
+                  .findFirst();
+
+          String eTag = ETagProvider.of(response.metadataLocation());
+          Preconditions.checkNotNull(eTag, "ETag is null");
+
+          // This is to simulate 304 when running the test in RESTCatalogServlet
+          /* if (true) {
+            return null;
+          }*/
+          if (ifNoneMatchHeader.isPresent() && eTag.equals(ifNoneMatchHeader.get().value())) {
+            return null;
+          }
+
+          responseHeaders.accept(ImmutableMap.of(HttpHeaders.ETAG, eTag));
 
           return castResponse(responseType, response);
         }

@@ -38,6 +38,7 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
+import org.apache.iceberg.rest.responses.CommitTableResponse;
 import org.apache.iceberg.rest.responses.ErrorResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.util.LocationUtil;
@@ -103,8 +104,11 @@ class RESTTableOperations implements TableOperations {
   @Override
   public TableMetadata refresh() {
     Endpoint.check(endpoints, Endpoint.V1_LOAD_TABLE);
-    return updateCurrentMetadata(
-        client.get(path, LoadTableResponse.class, headers, ErrorHandlers.tableErrorHandler()));
+
+    LoadTableResponse response =
+        client.get(path, LoadTableResponse.class, headers, ErrorHandlers.tableErrorHandler());
+
+    return updateCurrentMetadata(response.metadataLocation(), response.tableMetadata());
   }
 
   @Override
@@ -155,13 +159,13 @@ class RESTTableOperations implements TableOperations {
     // the error handler will throw necessary exceptions like CommitFailedException and
     // UnknownCommitStateException
     // TODO: ensure that the HTTP client lib passes HTTP client errors to the error handler
-    LoadTableResponse response =
-        client.post(path, request, LoadTableResponse.class, headers, errorHandler);
+    CommitTableResponse response =
+        client.post(path, request, CommitTableResponse.class, headers, errorHandler);
 
     // all future commits should be simple commits
     this.updateType = UpdateType.SIMPLE;
 
-    updateCurrentMetadata(response);
+    updateCurrentMetadata(response.metadataLocation(), response.tableMetadata());
   }
 
   @Override
@@ -169,13 +173,14 @@ class RESTTableOperations implements TableOperations {
     return io;
   }
 
-  private TableMetadata updateCurrentMetadata(LoadTableResponse response) {
+  // TODO: tableMetadata should contain metadataLocation here. Probably no need for that param.
+  private TableMetadata updateCurrentMetadata(
+      String metadataLocation, TableMetadata tableMetadata) {
     // LoadTableResponse is used to deserialize the response, but config is not allowed by the REST
-    // spec so it can be
-    // safely ignored. there is no requirement to update config on refresh or commit.
-    if (current == null
-        || !Objects.equals(current.metadataFileLocation(), response.metadataLocation())) {
-      this.current = response.tableMetadata();
+    // spec so it can be safely ignored. there is no requirement to update config on refresh or
+    // commit.
+    if (current == null || !Objects.equals(current.metadataFileLocation(), metadataLocation)) {
+      this.current = tableMetadata;
     }
 
     return current;

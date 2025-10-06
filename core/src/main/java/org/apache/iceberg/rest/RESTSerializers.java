@@ -61,6 +61,8 @@ import org.apache.iceberg.rest.requests.ReportMetricsRequest;
 import org.apache.iceberg.rest.requests.ReportMetricsRequestParser;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
+import org.apache.iceberg.rest.responses.CommitTableResponse;
+import org.apache.iceberg.rest.responses.CommitTableResponseParser;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.ConfigResponseParser;
 import org.apache.iceberg.rest.responses.ErrorResponse;
@@ -152,7 +154,9 @@ public class RESTSerializers {
             ImmutableLoadCredentialsResponse.class, new LoadCredentialsResponseSerializer<>())
         .addDeserializer(LoadCredentialsResponse.class, new LoadCredentialsResponseDeserializer<>())
         .addDeserializer(
-            ImmutableLoadCredentialsResponse.class, new LoadCredentialsResponseDeserializer<>());
+            ImmutableLoadCredentialsResponse.class, new LoadCredentialsResponseDeserializer<>())
+        .addSerializer(CommitTableResponse.class, new CommitTableResponseSerializer<>())
+        .addDeserializer(CommitTableResponse.class, new CommitTableResponseDeserializer<>());
 
     mapper.registerModule(module);
   }
@@ -594,6 +598,24 @@ public class RESTSerializers {
       return (T)
           FetchScanTasksResponseParser.fromJson(
               jsonNode, scanContext.getSpecsById(), scanContext.isCaseSensitive());
+    }
+  }
+
+  static class CommitTableResponseSerializer<T extends CommitTableResponse>
+      extends JsonSerializer<T> {
+    @Override
+    public void serialize(T request, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      CommitTableResponseParser.toJson(request, gen);
+    }
+  }
+
+  static class CommitTableResponseDeserializer<T extends CommitTableResponse>
+      extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+      return (T) CommitTableResponseParser.fromJson(jsonNode);
     }
   }
 

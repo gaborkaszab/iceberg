@@ -66,6 +66,7 @@ import org.apache.iceberg.rest.requests.RenameTableRequest;
 import org.apache.iceberg.rest.requests.ReportMetricsRequest;
 import org.apache.iceberg.rest.requests.UpdateNamespacePropertiesRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
+import org.apache.iceberg.rest.responses.CommitTableResponse;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.CreateNamespaceResponse;
 import org.apache.iceberg.rest.responses.ErrorResponse;
@@ -148,7 +149,10 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
         RegisterTableRequest.class,
         LoadTableResponse.class),
     UPDATE_TABLE(
-        HTTPMethod.POST, ResourcePaths.V1_TABLE, UpdateTableRequest.class, LoadTableResponse.class),
+        HTTPMethod.POST,
+        ResourcePaths.V1_TABLE,
+        UpdateTableRequest.class,
+        CommitTableResponse.class),
     DROP_TABLE(HTTPMethod.DELETE, ResourcePaths.V1_TABLE),
     RENAME_TABLE(HTTPMethod.POST, ResourcePaths.V1_TABLE_RENAME, RenameTableRequest.class, null),
     REPORT_METRICS(
@@ -455,7 +459,7 @@ public class RESTCatalogAdapter extends BaseHTTPClient {
 
       case UPDATE_TABLE:
         {
-          LoadTableResponse response =
+          CommitTableResponse response =
               CatalogHandlers.updateTable(
                   catalog,
                   tableIdentFromPathVars(vars),

@@ -65,6 +65,7 @@ import org.apache.iceberg.rest.requests.RegisterTableRequest;
 import org.apache.iceberg.rest.requests.RenameTableRequest;
 import org.apache.iceberg.rest.requests.UpdateNamespacePropertiesRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
+import org.apache.iceberg.rest.responses.CommitTableResponse;
 import org.apache.iceberg.rest.responses.CreateNamespaceResponse;
 import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.ImmutableLoadViewResponse;
@@ -367,7 +368,7 @@ public class CatalogHandlers {
     throw new IllegalStateException("Cannot wrap catalog that does not produce BaseTable");
   }
 
-  public static LoadTableResponse updateTable(
+  public static CommitTableResponse updateTable(
       Catalog catalog, TableIdentifier ident, UpdateTableRequest request) {
     TableMetadata finalMetadata;
     if (isCreate(request)) {
@@ -392,7 +393,7 @@ public class CatalogHandlers {
       }
     }
 
-    return LoadTableResponse.builder().withTableMetadata(finalMetadata).build();
+    return CommitTableResponse.builder().withTableMetadata(finalMetadata).build();
   }
 
   public static void renameTable(Catalog catalog, RenameTableRequest request) {

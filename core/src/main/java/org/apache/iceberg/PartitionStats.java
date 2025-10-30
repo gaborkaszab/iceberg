@@ -20,7 +20,7 @@ package org.apache.iceberg;
 
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 
-public class PartitionStats implements StructLike {
+public class PartitionStats implements PartitionStatistics {
 
   private static final int STATS_COUNT = 13;
 
@@ -43,54 +43,67 @@ public class PartitionStats implements StructLike {
     this.specId = specId;
   }
 
+  @Override
   public StructLike partition() {
     return partition;
   }
 
+  @Override
   public int specId() {
     return specId;
   }
 
+  @Override
   public long dataRecordCount() {
     return dataRecordCount;
   }
 
+  @Override
   public int dataFileCount() {
     return dataFileCount;
   }
 
+  @Override
   public long totalDataFileSizeInBytes() {
     return totalDataFileSizeInBytes;
   }
 
+  @Override
   public long positionDeleteRecordCount() {
     return positionDeleteRecordCount;
   }
 
+  @Override
   public int positionDeleteFileCount() {
     return positionDeleteFileCount;
   }
 
+  @Override
   public long equalityDeleteRecordCount() {
     return equalityDeleteRecordCount;
   }
 
+  @Override
   public int equalityDeleteFileCount() {
     return equalityDeleteFileCount;
   }
 
+  @Override
   public Long totalRecords() {
     return totalRecordCount;
   }
 
+  @Override
   public Long lastUpdatedAt() {
     return lastUpdatedAt;
   }
 
+  @Override
   public Long lastUpdatedSnapshotId() {
     return lastUpdatedSnapshotId;
   }
 
+  @Override
   public int dvCount() {
     return dvCount;
   }
@@ -187,29 +200,38 @@ public class PartitionStats implements StructLike {
    *
    * @param entry the entry from which statistics will be sourced.
    */
-  void appendStats(PartitionStats entry) {
+  public void appendStats(PartitionStatistics entry) {
     Preconditions.checkArgument(specId == entry.specId(), "Spec IDs must match");
 
-    this.dataRecordCount += entry.dataRecordCount;
-    this.dataFileCount += entry.dataFileCount;
-    this.totalDataFileSizeInBytes += entry.totalDataFileSizeInBytes;
-    this.positionDeleteRecordCount += entry.positionDeleteRecordCount;
-    this.positionDeleteFileCount += entry.positionDeleteFileCount;
-    this.equalityDeleteRecordCount += entry.equalityDeleteRecordCount;
-    this.equalityDeleteFileCount += entry.equalityDeleteFileCount;
-    this.dvCount += entry.dvCount;
+    this.dataRecordCount += entry.dataRecordCount();
+    this.dataFileCount += entry.dataFileCount();
+    this.totalDataFileSizeInBytes += entry.totalDataFileSizeInBytes();
+    this.positionDeleteRecordCount += entry.positionDeleteRecordCount();
+    this.positionDeleteFileCount += entry.positionDeleteFileCount();
+    this.equalityDeleteRecordCount += entry.equalityDeleteRecordCount();
+    this.equalityDeleteFileCount += entry.equalityDeleteFileCount();
+    this.dvCount += entry.dvCount();
 
-    if (entry.totalRecordCount != null) {
+    if (entry.totalRecords() != null) {
       if (totalRecordCount == null) {
-        this.totalRecordCount = entry.totalRecordCount;
+        this.totalRecordCount = entry.totalRecords();
       } else {
-        this.totalRecordCount += entry.totalRecordCount;
+        this.totalRecordCount += entry.totalRecords();
       }
     }
 
-    if (entry.lastUpdatedAt != null) {
-      updateSnapshotInfo(entry.lastUpdatedSnapshotId, entry.lastUpdatedAt);
+    if (entry.lastUpdatedAt() != null) {
+      updateSnapshotInfo(entry.lastUpdatedSnapshotId(), entry.lastUpdatedAt());
     }
+  }
+
+  /**
+   * @deprecated will be removed in 1.12.0. Use {@link
+   *     PartitionStats#appendStats(PartitionStatistics) instead}
+   */
+  @Deprecated
+  public void appendStats(PartitionStats entry) {
+    appendStats((PartitionStatistics) entry);
   }
 
   private void updateSnapshotInfo(long snapshotId, long updatedAt) {

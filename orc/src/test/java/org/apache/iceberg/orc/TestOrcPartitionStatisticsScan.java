@@ -21,52 +21,38 @@ package org.apache.iceberg.orc;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionStatsHandlerTestBase;
+import org.apache.iceberg.TestBasePartitionStatisticsScan;
 
-public class TestOrcPartitionStatsHandler extends PartitionStatsHandlerTestBase {
-
+public class TestOrcPartitionStatisticsScan extends TestBasePartitionStatisticsScan {
+  @Override
   public FileFormat format() {
     return FileFormat.ORC;
   }
 
   @Override
-  public void testAllDatatypePartitionWriting() throws Exception {
-    assertThatThrownBy(super::testAllDatatypePartitionWriting)
+  public void testScanPartitionStatsForCurrentSnapshot() throws Exception {
+    assertThatThrownBy(super::testScanPartitionStatsForCurrentSnapshot)
         .isInstanceOf(UnsupportedOperationException.class)
         .hasMessage("Cannot write using unregistered internal data format: ORC");
   }
 
   @Override
-  public void testOptionalFieldsWriting() throws Exception {
-    assertThatThrownBy(super::testOptionalFieldsWriting)
+  public void testScanPartitionStatsForOlderSnapshot() throws Exception {
+    assertThatThrownBy(super::testScanPartitionStatsForOlderSnapshot)
         .isInstanceOf(UnsupportedOperationException.class)
         .hasMessage("Cannot write using unregistered internal data format: ORC");
   }
 
   @Override
-  public void testLatestStatsFile() throws Exception {
-    assertThatThrownBy(super::testLatestStatsFile)
+  public void testReadingStatsWithInvalidSchema() throws Exception {
+    assertThatThrownBy(super::testReadingStatsWithInvalidSchema)
         .isInstanceOf(UnsupportedOperationException.class)
         .hasMessage("Cannot write using unregistered internal data format: ORC");
   }
 
   @Override
-  public void testLatestStatsFileWithBranch() throws Exception {
-    assertThatThrownBy(super::testLatestStatsFileWithBranch)
-        .isInstanceOf(UnsupportedOperationException.class)
-        .hasMessage("Cannot write using unregistered internal data format: ORC");
-  }
-
-  @Override
-  public void testCopyOnWriteDelete() throws Exception {
-    assertThatThrownBy(super::testCopyOnWriteDelete)
-        .isInstanceOf(UnsupportedOperationException.class)
-        .hasMessage("Cannot write using unregistered internal data format: ORC");
-  }
-
-  @Override
-  public void testFullComputeFallbackWithInvalidStats() {
-    assertThatThrownBy(super::testFullComputeFallbackWithInvalidStats)
+  public void testV2toV3SchemaEvolution() throws Exception {
+    assertThatThrownBy(super::testV2toV3SchemaEvolution)
         .isInstanceOf(UnsupportedOperationException.class)
         .hasMessage("Cannot write using unregistered internal data format: ORC");
   }

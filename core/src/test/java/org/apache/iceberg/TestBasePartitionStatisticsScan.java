@@ -19,6 +19,7 @@
 package org.apache.iceberg;
 
 import static org.apache.iceberg.PartitionStatsHandler.PARTITION_FIELD_ID;
+import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -27,9 +28,14 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Comparators;
 import org.apache.iceberg.types.Types;
 import org.assertj.core.groups.Tuple;
@@ -403,6 +409,173 @@ public abstract class TestBasePartitionStatisticsScan extends PartitionStatistic
             firstSnapshot.timestampMillis(),
             firstSnapshot.snapshotId(),
             null));
+  }
+
+  @Test
+  public void testNullFilter() throws Exception {
+    Table testTable =
+        TestTables.create(
+            tempDir("null_filter"), "null_filter", SCHEMA, SPEC, 2, fileFormatProperty);
+
+    DataFile dataFile1 =
+        FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of("foo", "A"));
+
+    testTable.newAppend().appendFile(dataFile1).commit();
+
+    testTable
+        .updatePartitionStatistics()
+        .setPartitionStatistics(PartitionStatsHandler.computeAndWriteStatsFile(testTable))
+        .commit();
+
+    assertThatThrownBy(() -> testTable.newPartitionStatisticsScan().filter(null).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Invalid filter: null");
+  }
+
+  @Test
+  public void testFilterOnNonPartitionColumn() throws Exception {
+    PartitionSpec spec = PartitionSpec.builderFor(SCHEMA).bucket("c2", 10).identity("c3").build();
+    Table testTable =
+        TestTables.create(
+            tempDir("filter_on_non_partition_cols"),
+            "filter_on_non_partition_cols",
+            SCHEMA,
+            spec,
+            2,
+            fileFormatProperty);
+
+    DataFile dataFile1 = FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of(5, "A"));
+    testTable.newAppend().appendFile(dataFile1).commit();
+
+    testTable
+        .updatePartitionStatistics()
+        .setPartitionStatistics(PartitionStatsHandler.computeAndWriteStatsFile(testTable))
+        .commit();
+
+    // Filter refers non-partition column.
+    Expression filterNonPartitionCol = Expressions.equal("c1", 42);
+    assertThatThrownBy(
+            () -> testTable.newPartitionStatisticsScan().filter(filterNonPartitionCol).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Not a partition column: c1");
+
+    // Filter refers partition and non-partition columns.
+    Expression filterMixed =
+        Expressions.and(Expressions.equal("c3", "foo"), Expressions.equal("c1", "foo"));
+    assertThatThrownBy(() -> testTable.newPartitionStatisticsScan().filter(filterMixed).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Not a partition column: c1");
+
+    // Filter refers a transformed partition column that does not have transform.
+    Expression filterTransform = Expressions.equal(Expressions.truncate("c3", 10), "some_value");
+    assertThatThrownBy(() -> testTable.newPartitionStatisticsScan().filter(filterTransform).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Not a partition column: c3_trunc");
+
+    // Filter has no transform on a partition column that has transform.
+    Expression filterMissingTransform = Expressions.equal("c2", "some_value");
+    assertThatThrownBy(
+            () -> testTable.newPartitionStatisticsScan().filter(filterMissingTransform).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Not a partition column: c2");
+
+    // Filter doesn't match partition column due to case sensitivity.
+    Expression filterCaseMismatch = Expressions.equal("C3", "some_value");
+    assertThatThrownBy(
+            () -> testTable.newPartitionStatisticsScan().filter(filterCaseMismatch).scan())
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Not a partition column: C3");
+  }
+
+  // TODO gaborkaszab: add a test where spec contains a col and the same col with a transform
+
+  // TODO gaborkaszab: create another test based on the above where c1 used to be partition col but
+  // not anymore.
+
+  @Test
+  public void testFilterOnPartitionColumn() throws Exception {
+    Table testTable =
+        TestTables.create(
+            tempDir("filter_on_partition_cols"),
+            "filter_partition_cols",
+            SCHEMA,
+            SPEC,
+            2,
+            fileFormatProperty);
+
+    DataFile dataFile1 =
+        FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of("foo", "A"));
+    DataFile dataFile2 =
+        FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of("foo", "B"));
+
+    // TODO gaborkaszab: think through if more than 1 snapshot adds any value
+    testTable.newAppend().appendFile(dataFile1).appendFile(dataFile2).commit();
+    testTable.newAppend().appendFile(dataFile1).appendFile(dataFile2).commit();
+
+    testTable
+        .updatePartitionStatistics()
+        .setPartitionStatistics(PartitionStatsHandler.computeAndWriteStatsFile(testTable))
+        .commit();
+
+    List<PartitionStatistics> partitionStats;
+    try (CloseableIterable<PartitionStatistics> resultIterator =
+        testTable.newPartitionStatisticsScan().filter(Expressions.equal("c3", "A")).scan()) {
+      partitionStats = Lists.newArrayList(resultIterator);
+    }
+
+    assertThat(partitionStats).hasSize(1);
+  }
+
+  // TODO gaborkaszab: write a test where a col gets out from the spec and schema too: partitionType
+  // changes from that snapshot. Would that confuse filtering?
+
+  @Test
+  public void testFilterOnPartitionColumnWithTransform() throws Exception {
+    Schema schema =
+        new Schema(
+            optional(1, "c1", Types.IntegerType.get()),
+            optional(2, "c2", Types.StringType.get()),
+            optional(3, "c3", Types.TimestampType.withoutZone()));
+
+    PartitionSpec spec = PartitionSpec.builderFor(schema).truncate("c2", 10).day("c3").build();
+
+    Table testTable =
+        TestTables.create(
+            tempDir("filter_on_transform"),
+            "filter_on_transform",
+            schema,
+            spec,
+            2,
+            fileFormatProperty);
+
+    Function<Object, Integer> dayBinder = Transforms.day().bind(Types.TimestampType.withoutZone());
+    Integer dayForPartition1 =
+        dayBinder.apply(
+            Literal.of("2017-12-01T10:12:55.038194").to(Types.TimestampType.withoutZone()).value());
+    Integer dayForPartition2 =
+        dayBinder.apply(
+            Literal.of("2025-01-15T02:03:04.123456").to(Types.TimestampType.withoutZone()).value());
+
+    DataFile dataFile1 =
+        FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of("foo", dayForPartition1));
+    DataFile dataFile2 =
+        FileGenerationUtil.generateDataFile(testTable, TestHelpers.Row.of("foo", dayForPartition2));
+
+    testTable.newAppend().appendFile(dataFile1).appendFile(dataFile2).commit();
+
+    testTable
+        .updatePartitionStatistics()
+        .setPartitionStatistics(PartitionStatsHandler.computeAndWriteStatsFile(testTable))
+        .commit();
+
+    Expression filterExpr = Expressions.equal(Expressions.day("c3"), dayForPartition2);
+    List<PartitionStatistics> partitionStats;
+    try (CloseableIterable<PartitionStatistics> resultIterator =
+        testTable.newPartitionStatisticsScan().filter(filterExpr).scan()) {
+      partitionStats = Lists.newArrayList(resultIterator);
+    }
+
+    assertThat(partitionStats).hasSize(1);
   }
 
   private static void computeAndValidatePartitionStats(

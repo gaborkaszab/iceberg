@@ -23,7 +23,7 @@ import java.time.temporal.ChronoUnit;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
-class Years<T> extends TimeTransform<T> {
+public class Years<T> extends TimeTransform<T> {
   private static final Years<?> INSTANCE = new Years<>();
 
   @SuppressWarnings("unchecked")

@@ -36,7 +36,7 @@ import org.apache.iceberg.util.BucketUtil;
 import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.SerializableFunction;
 
-class Bucket<T> implements Transform<T, Integer>, Serializable {
+public class Bucket<T> implements Transform<T, Integer>, Serializable {
   static <T> Bucket<T> get(int numBuckets) {
     Preconditions.checkArgument(
         numBuckets > 0, "Invalid number of buckets: %s (must be > 0)", numBuckets);

@@ -28,7 +28,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.util.SerializableFunction;
 
-class Identity<T> implements Transform<T, T> {
+public class Identity<T> implements Transform<T, T> {
   private static final Identity<?> INSTANCE = new Identity<>();
 
   private static final Set<Type.TypeID> UNSUPPORTED_TYPES =

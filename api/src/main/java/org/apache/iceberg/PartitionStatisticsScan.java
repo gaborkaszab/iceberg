@@ -41,6 +41,9 @@ public interface PartitionStatisticsScan {
    */
   PartitionStatisticsScan filter(Expression filter);
 
+  // TODO gaborkaszab: comment
+  PartitionStatisticsScan caseSensitive(boolean caseSensitive);
+
   /**
    * Create a new scan from this with the schema as its projection.
    *

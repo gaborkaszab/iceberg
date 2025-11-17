@@ -25,7 +25,7 @@ import org.apache.iceberg.expressions.UnboundPredicate;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.util.SerializableFunction;
 
-class VoidTransform<S> implements Transform<S, Void> {
+public class VoidTransform<S> implements Transform<S, Void> {
   private static final VoidTransform<Object> INSTANCE = new VoidTransform<>();
 
   @SuppressWarnings("unchecked")

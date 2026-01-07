@@ -40,8 +40,24 @@ public class BasePartitionStatistics extends SupportsIndexProjection
 
   private static final int STATS_COUNT = 13;
 
+  BasePartitionStatistics(StructLike partition, int specId) {
+    super(STATS_COUNT);
+
+    this.partition = partition;
+    this.specId = specId;
+
+    this.dataRecordCount = 0L;
+    this.dataFileCount = 0;
+    this.totalDataFileSizeInBytes = 0L;
+    this.positionDeleteRecordCount = 0L;
+    this.positionDeleteFileCount = 0;
+    this.equalityDeleteRecordCount = 0L;
+    this.equalityDeleteFileCount = 0;
+    this.dvCount = 0;
+  }
+
   /** Used by internal readers to instantiate this class with a projection schema. */
-  public BasePartitionStatistics(Types.StructType projection) {
+  BasePartitionStatistics(Types.StructType projection) {
     super(STATS_COUNT);
   }
 

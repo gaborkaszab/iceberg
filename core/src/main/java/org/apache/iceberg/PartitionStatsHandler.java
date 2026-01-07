@@ -100,6 +100,18 @@ public class PartitionStatsHandler {
           .withWriteDefault(Literal.of(0))
           .build();
 
+  static final int DATA_RECORD_COUNT_POSITION = 2;
+  static final int DATA_FILE_COUNT_POSITION = 3;
+  static final int TOTAL_DATA_FILE_SIZE_IN_BYTES_POSITION = 4;
+  static final int POSITION_DELETE_RECORD_COUNT_POSITION = 5;
+  static final int POSITION_DELETE_FILE_COUNT_POSITION = 6;
+  static final int EQUALITY_DELETE_RECORD_COUNT_POSITION = 7;
+  static final int EQUALITY_DELETE_FILE_COUNT_POSITION = 8;
+  static final int TOTAL_RECORD_COUNT_POSITION = 9;
+  static final int LAST_UPDATED_AT_POSITION = 10;
+  static final int LAST_UPDATED_SNAPSHOT_ID_POSITION = 11;
+  static final int DV_COUNT_POSITION = 12;
+
   /**
    * Generates the partition stats file schema for a given format version based on a combined
    * partition type which considers all specs in a table.
@@ -208,9 +220,7 @@ public class PartitionStatsHandler {
     Snapshot snapshot = table.snapshot(snapshotId);
     Preconditions.checkArgument(snapshot != null, "Snapshot not found: %s", snapshotId);
 
-    StructType partitionType = Partitioning.partitionType(table);
-
-    Collection<PartitionStats> stats;
+    Collection<PartitionStatistics> stats;
     PartitionStatisticsFile statisticsFile = latestStatsFile(table, snapshot.snapshotId());
     if (statisticsFile == null) {
       LOG.info(
@@ -225,7 +235,7 @@ public class PartitionStatsHandler {
       }
 
       try {
-        stats = computeAndMergeStatsIncremental(table, snapshot, partitionType, statisticsFile);
+        stats = computeAndMergeStatsIncremental(table, snapshot, statisticsFile.snapshotId());
       } catch (InvalidStatsFileException exception) {
         LOG.warn(
             "Using full compute as previous statistics file is corrupted for incremental compute.");
@@ -240,7 +250,8 @@ public class PartitionStatsHandler {
       return null;
     }
 
-    List<PartitionStats> sortedStats = sortStatsByPartition(stats, partitionType);
+    StructType partitionType = Partitioning.partitionType(table);
+    List<PartitionStatistics> sortedStats = sortStatsByPartition(stats, partitionType);
     return writePartitionStatsFile(
         table,
         snapshot.snapshotId(),
@@ -250,7 +261,7 @@ public class PartitionStatsHandler {
 
   @VisibleForTesting
   static PartitionStatisticsFile writePartitionStatsFile(
-      Table table, long snapshotId, Schema dataSchema, Iterable<PartitionStats> records)
+      Table table, long snapshotId, Schema dataSchema, Iterable<PartitionStatistics> records)
       throws IOException {
     FileFormat fileFormat =
         FileFormat.fromString(
@@ -322,17 +333,11 @@ public class PartitionStatsHandler {
     return stats;
   }
 
-  private static Collection<PartitionStats> computeAndMergeStatsIncremental(
-      Table table,
-      Snapshot snapshot,
-      StructType partitionType,
-      PartitionStatisticsFile previousStatsFile) {
-    PartitionMap<PartitionStats> statsMap = PartitionMap.create(table.specs());
-    // read previous stats, note that partition field will be read as GenericRecord
-    try (CloseableIterable<PartitionStats> oldStats =
-        readPartitionStatsFile(
-            schema(partitionType, TableUtil.formatVersion(table)),
-            table.io().newInputFile(previousStatsFile.path()))) {
+  private static Collection<PartitionStatistics> computeAndMergeStatsIncremental(
+      Table table, Snapshot snapshot, long lastSnapshotWithStats) {
+    PartitionMap<PartitionStatistics> statsMap = PartitionMap.create(table.specs());
+    try (CloseableIterable<PartitionStatistics> oldStats =
+        table.newPartitionStatisticsScan().useSnapshot(lastSnapshotWithStats).scan()) {
       oldStats.forEach(
           partitionStats ->
               statsMap.put(partitionStats.specId(), partitionStats.partition(), partitionStats));
@@ -341,8 +346,8 @@ public class PartitionStatsHandler {
     }
 
     // incrementally compute the new stats, partition field will be written as PartitionData
-    PartitionMap<PartitionStats> incrementalStatsMap =
-        computeStatsDiff(table, table.snapshot(previousStatsFile.snapshotId()), snapshot);
+    PartitionMap<PartitionStatistics> incrementalStatsMap =
+        computeStatsDiff(table, table.snapshot(lastSnapshotWithStats), snapshot);
 
     // convert PartitionData into GenericRecord and merge stats
     incrementalStatsMap.forEach(
@@ -351,7 +356,8 @@ public class PartitionStatsHandler {
                 Pair.of(key.first(), partitionDataToRecord((PartitionData) key.second())),
                 value,
                 (existingEntry, newEntry) -> {
-                  existingEntry.appendStats(newEntry);
+                  // ((BasePartitionStatistics) existingEntry).appendStats(newEntry);
+                  appendStats(existingEntry, newEntry);
                   return existingEntry;
                 }));
 
@@ -389,7 +395,7 @@ public class PartitionStatsHandler {
     return null;
   }
 
-  private static PartitionMap<PartitionStats> computeStatsDiff(
+  private static PartitionMap<PartitionStatistics> computeStatsDiff(
       Table table, Snapshot fromSnapshot, Snapshot toSnapshot) {
     Iterable<Snapshot> snapshots =
         SnapshotUtil.ancestorsBetween(
@@ -408,10 +414,10 @@ public class PartitionStatsHandler {
     return computeStats(table, manifests, true /* incremental */);
   }
 
-  private static PartitionMap<PartitionStats> computeStats(
+  private static PartitionMap<PartitionStatistics> computeStats(
       Table table, List<ManifestFile> manifests, boolean incremental) {
     StructType partitionType = Partitioning.partitionType(table);
-    Queue<PartitionMap<PartitionStats>> statsByManifest = Queues.newConcurrentLinkedQueue();
+    Queue<PartitionMap<PartitionStatistics>> statsByManifest = Queues.newConcurrentLinkedQueue();
     Tasks.foreach(manifests)
         .stopOnFailure()
         .throwFailureWhenFinished()
@@ -421,19 +427,19 @@ public class PartitionStatsHandler {
                 statsByManifest.add(
                     collectStatsForManifest(table, manifest, partitionType, incremental)));
 
-    PartitionMap<PartitionStats> statsMap = PartitionMap.create(table.specs());
-    for (PartitionMap<PartitionStats> stats : statsByManifest) {
+    PartitionMap<PartitionStatistics> statsMap = PartitionMap.create(table.specs());
+    for (PartitionMap<PartitionStatistics> stats : statsByManifest) {
       mergePartitionMap(stats, statsMap);
     }
 
     return statsMap;
   }
 
-  private static PartitionMap<PartitionStats> collectStatsForManifest(
+  private static PartitionMap<PartitionStatistics> collectStatsForManifest(
       Table table, ManifestFile manifest, StructType partitionType, boolean incremental) {
     List<String> projection = BaseScan.scanColumns(manifest.content());
     try (ManifestReader<?> reader = ManifestFiles.open(manifest, table.io()).select(projection)) {
-      PartitionMap<PartitionStats> statsMap = PartitionMap.create(table.specs());
+      PartitionMap<PartitionStatistics> statsMap = PartitionMap.create(table.specs());
       int specId = manifest.partitionSpecId();
       PartitionSpec spec = table.specs().get(specId);
       PartitionData keyTemplate = new PartitionData(partitionType);
@@ -444,22 +450,25 @@ public class PartitionStatsHandler {
             PartitionUtil.coercePartition(partitionType, spec, file.partition());
         StructLike key = keyTemplate.copyFor(coercedPartition);
         Snapshot snapshot = table.snapshot(entry.snapshotId());
-        PartitionStats stats =
+        PartitionStatistics stats =
             statsMap.computeIfAbsent(
                 specId,
                 ((PartitionData) file.partition()).copy(),
-                () -> new PartitionStats(key, specId));
+                () -> new BasePartitionStatistics(key, specId));
         if (entry.isLive()) {
           // Live can have both added and existing entries. Consider only added entries for
           // incremental compute as existing entries was already included in previous compute.
           if (!incremental || entry.status() == ManifestEntry.Status.ADDED) {
-            stats.liveEntry(file, snapshot);
+            // stats.liveEntry(file, snapshot);
+            liveEntry(stats, file, snapshot);
           }
         } else {
           if (incremental) {
-            stats.deletedEntryForIncrementalCompute(file, snapshot);
+            // stats.deletedEntryForIncrementalCompute(file, snapshot);
+            deletedEntryForIncrementalCompute(stats, file, snapshot);
           } else {
-            stats.deletedEntry(snapshot);
+            // stats.deletedEntry(snapshot);
+            deletedEntry(stats, snapshot);
           }
         }
       }
@@ -471,24 +480,195 @@ public class PartitionStatsHandler {
   }
 
   private static void mergePartitionMap(
-      PartitionMap<PartitionStats> fromMap, PartitionMap<PartitionStats> toMap) {
+      PartitionMap<PartitionStatistics> fromMap, PartitionMap<PartitionStatistics> toMap) {
     fromMap.forEach(
         (key, value) ->
             toMap.merge(
                 key,
                 value,
                 (existingEntry, newEntry) -> {
-                  existingEntry.appendStats(newEntry);
+                  // ((BasePartitionStatistics) existingEntry).appendStats(newEntry);
+                  appendStats(existingEntry, newEntry);
                   return existingEntry;
                 }));
   }
 
-  private static List<PartitionStats> sortStatsByPartition(
-      Collection<PartitionStats> stats, StructType partitionType) {
-    List<PartitionStats> entries = Lists.newArrayList(stats);
+  private static List<PartitionStatistics> sortStatsByPartition(
+      Collection<PartitionStatistics> stats, StructType partitionType) {
+    List<PartitionStatistics> entries = Lists.newArrayList(stats);
     entries.sort(
-        Comparator.comparing(PartitionStats::partition, Comparators.forType(partitionType)));
+        Comparator.comparing(PartitionStatistics::partition, Comparators.forType(partitionType)));
     return entries;
+  }
+
+  // TODO gaborkaszab: add comment for functions here
+  // TODO gaborkaszab: consider renaming them?
+
+  private static void liveEntry(PartitionStatistics stats, ContentFile<?> file, Snapshot snapshot) {
+    Preconditions.checkArgument(stats.specId() == file.specId(), "Spec IDs must match");
+
+    switch (file.content()) {
+      case DATA:
+        // this.dataRecordCount += file.recordCount();
+        // this.dataFileCount += 1;
+        // this.totalDataFileSizeInBytes += file.fileSizeInBytes();
+        stats.set(DATA_RECORD_COUNT_POSITION, stats.dataRecordCount() + file.recordCount());
+        stats.set(DATA_FILE_COUNT_POSITION, stats.dataFileCount() + 1);
+        stats.set(
+            TOTAL_DATA_FILE_SIZE_IN_BYTES_POSITION,
+            stats.totalDataFileSizeInBytes() + file.fileSizeInBytes());
+        break;
+      case POSITION_DELETES:
+        // this.positionDeleteRecordCount += file.recordCount();
+        stats.set(
+            POSITION_DELETE_RECORD_COUNT_POSITION,
+            stats.positionDeleteRecordCount() + file.recordCount());
+        if (file.format() == FileFormat.PUFFIN) {
+          // this.dvCount += 1;
+          stats.set(DV_COUNT_POSITION, stats.dvCount() + 1);
+        } else {
+          // this.positionDeleteFileCount += 1;
+          stats.set(POSITION_DELETE_FILE_COUNT_POSITION, stats.positionDeleteFileCount() + 1);
+        }
+
+        break;
+      case EQUALITY_DELETES:
+        // this.equalityDeleteRecordCount += file.recordCount();
+        // this.equalityDeleteFileCount += 1;
+        stats.set(
+            EQUALITY_DELETE_RECORD_COUNT_POSITION,
+            stats.equalityDeleteRecordCount() + file.recordCount());
+        stats.set(EQUALITY_DELETE_FILE_COUNT_POSITION, stats.equalityDeleteFileCount() + 1);
+        break;
+      default:
+        throw new UnsupportedOperationException("Unsupported file content type: " + file.content());
+    }
+
+    if (snapshot != null) {
+      updateSnapshotInfo(stats, snapshot.snapshotId(), snapshot.timestampMillis());
+    }
+
+    // Note: Not computing the `TOTAL_RECORD_COUNT` for now as it needs scanning the data.
+  }
+
+  private static void deletedEntry(PartitionStatistics stats, Snapshot snapshot) {
+    if (snapshot != null) {
+      updateSnapshotInfo(stats, snapshot.snapshotId(), snapshot.timestampMillis());
+    }
+  }
+
+  private static void deletedEntryForIncrementalCompute(
+      PartitionStatistics stats, ContentFile<?> file, Snapshot snapshot) {
+    Preconditions.checkArgument(stats.specId() == file.specId(), "Spec IDs must match");
+
+    switch (file.content()) {
+      case DATA:
+        // this.dataRecordCount -= file.recordCount();
+        // this.dataFileCount -= 1;
+        // this.totalDataFileSizeInBytes -= file.fileSizeInBytes();
+        stats.set(DATA_RECORD_COUNT_POSITION, stats.dataRecordCount() - file.recordCount());
+        stats.set(DATA_FILE_COUNT_POSITION, stats.dataFileCount() - 1);
+        stats.set(
+            TOTAL_DATA_FILE_SIZE_IN_BYTES_POSITION,
+            stats.totalDataFileSizeInBytes() - file.fileSizeInBytes());
+        break;
+      case POSITION_DELETES:
+        // this.positionDeleteRecordCount -= file.recordCount();
+        stats.set(
+            POSITION_DELETE_RECORD_COUNT_POSITION,
+            stats.positionDeleteRecordCount() - file.recordCount());
+        if (file.format() == FileFormat.PUFFIN) {
+          // this.dvCount -= 1;
+          stats.set(DV_COUNT_POSITION, stats.dvCount() - 1);
+        } else {
+          // this.positionDeleteFileCount -= 1;
+          stats.set(POSITION_DELETE_FILE_COUNT_POSITION, stats.positionDeleteFileCount() - 1);
+        }
+
+        break;
+      case EQUALITY_DELETES:
+        // this.equalityDeleteRecordCount -= file.recordCount();
+        // this.equalityDeleteFileCount -= 1;
+        stats.set(
+            EQUALITY_DELETE_RECORD_COUNT_POSITION,
+            stats.equalityDeleteRecordCount() - file.recordCount());
+        stats.set(EQUALITY_DELETE_FILE_COUNT_POSITION, stats.equalityDeleteFileCount() - 1);
+        break;
+      default:
+        throw new UnsupportedOperationException("Unsupported file content type: " + file.content());
+    }
+
+    if (snapshot != null) {
+      updateSnapshotInfo(stats, snapshot.snapshotId(), snapshot.timestampMillis());
+    }
+  }
+
+  // TODO gaborkaszab: rename params to reflect that the changes are reflected in 'stat1'?
+  private static void appendStats(PartitionStatistics stat1, PartitionStatistics stat2) {
+    Preconditions.checkArgument(stat1.specId() != null, "Invalid spec ID: null");
+    Preconditions.checkArgument(stat1.specId().equals(stat2.specId()), "Spec IDs must match");
+
+    // This is expected to be called on the compute/write path where we use full schemas, hence
+    // these members can't be null.
+    // this.dataRecordCount += entry.dataRecordCount();
+    // this.dataFileCount += entry.dataFileCount();
+    // this.totalDataFileSizeInBytes += entry.totalDataFileSizeInBytes();
+    // this.positionDeleteRecordCount += entry.positionDeleteRecordCount();
+    // this.positionDeleteFileCount += entry.positionDeleteFileCount();
+    // this.equalityDeleteRecordCount += entry.equalityDeleteRecordCount();
+    // this.equalityDeleteFileCount += entry.equalityDeleteFileCount();
+    stat1.set(DATA_RECORD_COUNT_POSITION, stat1.dataRecordCount() + stat2.dataRecordCount());
+    stat1.set(DATA_FILE_COUNT_POSITION, stat1.dataFileCount() + stat2.dataFileCount());
+    stat1.set(
+        TOTAL_DATA_FILE_SIZE_IN_BYTES_POSITION,
+        stat1.totalDataFileSizeInBytes() + stat2.totalDataFileSizeInBytes());
+    stat1.set(
+        POSITION_DELETE_RECORD_COUNT_POSITION,
+        stat1.positionDeleteRecordCount() + stat2.positionDeleteRecordCount());
+    stat1.set(
+        POSITION_DELETE_FILE_COUNT_POSITION,
+        stat1.positionDeleteFileCount() + stat2.positionDeleteFileCount());
+    stat1.set(
+        EQUALITY_DELETE_RECORD_COUNT_POSITION,
+        stat1.equalityDeleteRecordCount() + stat2.equalityDeleteRecordCount());
+    stat1.set(
+        EQUALITY_DELETE_FILE_COUNT_POSITION,
+        stat1.equalityDeleteFileCount() + stat2.equalityDeleteFileCount());
+
+    if (stat2.dvCount() != null) {
+      if (stat1.dvCount() == null) {
+        // this.dvCount = entry.dvCount();
+        stat1.set(DV_COUNT_POSITION, stat2.dvCount());
+      } else {
+        // this.dvCount += entry.dvCount();
+        stat1.set(DV_COUNT_POSITION, stat1.dvCount() + stat2.dvCount());
+      }
+    }
+
+    if (stat2.totalRecords() != null) {
+      if (stat1.totalRecords() == null) {
+        // this.totalRecordCount = entry.totalRecords();
+        stat1.set(TOTAL_RECORD_COUNT_POSITION, stat2.totalRecords());
+      } else {
+        // this.totalRecordCount += entry.totalRecords();
+        stat1.set(TOTAL_RECORD_COUNT_POSITION, stat1.totalRecords() + stat2.totalRecords());
+      }
+    }
+
+    if (stat2.lastUpdatedAt() != null) {
+      updateSnapshotInfo(stat1, stat2.lastUpdatedSnapshotId(), stat2.lastUpdatedAt());
+    }
+  }
+
+  private static void updateSnapshotInfo(
+      PartitionStatistics stats, long snapshotId, long updatedAt) {
+    if (stats.lastUpdatedAt() == null || stats.lastUpdatedAt() < updatedAt) {
+      // this.lastUpdatedAt = updatedAt;
+      // this.lastUpdatedSnapshotId = snapshotId;
+
+      stats.set(LAST_UPDATED_AT_POSITION, updatedAt);
+      stats.set(LAST_UPDATED_SNAPSHOT_ID_POSITION, snapshotId);
+    }
   }
 
   private static class InvalidStatsFileException extends RuntimeException {

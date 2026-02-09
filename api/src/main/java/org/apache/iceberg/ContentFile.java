@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.iceberg.types.Types;
 
 /**
  * Superinterface of {@link DataFile} and {@link DeleteFile} that exposes common methods.
@@ -165,6 +166,24 @@ public interface ContentFile<F> {
    */
   default Long fileSequenceNumber() {
     return null;
+  }
+
+  default ColumnUpdateDetails columnUpdateDetails() {
+    return null;
+  }
+
+  // TODO gaborkaszab: probably not ideal that the schema is in DataFile
+  /** Details about column updates associated with this data file. */
+  interface ColumnUpdateDetails {
+    /** Returns the field IDs updated by the column update. */
+    List<Integer> fieldIds();
+
+    /** Returns the file path of the column update file. */
+    String filePath();
+
+    static Types.StructType getType() {
+      return DataFile.COLUMN_UPDATES_TYPE;
+    }
   }
 
   /**

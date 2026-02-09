@@ -157,6 +157,7 @@ public class DataFiles {
     private List<Long> splitOffsets = null;
     private Integer sortOrderId = SortOrder.unsorted().orderId();
     private Long firstRowId = null;
+    private BaseFile.ColumnUpdateDetails columnUpdateDetails = null;
 
     public Builder(PartitionSpec spec) {
       this.spec = spec;
@@ -182,6 +183,7 @@ public class DataFiles {
       this.splitOffsets = null;
       this.sortOrderId = SortOrder.unsorted().orderId();
       this.firstRowId = null;
+      this.columnUpdateDetails = null;
     }
 
     public Builder copy(DataFile toCopy) {
@@ -206,6 +208,14 @@ public class DataFiles {
           toCopy.splitOffsets() == null ? null : ImmutableList.copyOf(toCopy.splitOffsets());
       this.sortOrderId = toCopy.sortOrderId();
       this.firstRowId = toCopy.firstRowId();
+      ContentFile.ColumnUpdateDetails toCopyColumnUpdateDetails = toCopy.columnUpdateDetails();
+      if (toCopyColumnUpdateDetails != null) {
+        this.columnUpdateDetails =
+            BaseFile.ColumnUpdateDetails.of(
+                toCopyColumnUpdateDetails.fieldIds(), toCopyColumnUpdateDetails.filePath());
+      } else {
+        this.columnUpdateDetails = null;
+      }
       return this;
     }
 
@@ -331,6 +341,11 @@ public class DataFiles {
       return this;
     }
 
+    public Builder withColumnUpdates(List<Integer> newFieldIds, String newFilePath) {
+      this.columnUpdateDetails = BaseFile.ColumnUpdateDetails.of(newFieldIds, newFilePath);
+      return this;
+    }
+
     public DataFile build() {
       Preconditions.checkArgument(filePath != null, "File path is required");
       if (format == null) {
@@ -358,7 +373,8 @@ public class DataFiles {
           keyMetadata,
           splitOffsets,
           sortOrderId,
-          firstRowId);
+          firstRowId,
+          columnUpdateDetails);
     }
   }
 }

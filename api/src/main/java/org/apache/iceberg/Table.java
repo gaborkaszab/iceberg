@@ -239,6 +239,12 @@ public interface Table {
     return newAppend();
   }
 
+  // TODO gaborkaszab: write comment
+  default ColumnUpdate newColumnUpdate(List<Integer> fieldIds) {
+    throw new UnsupportedOperationException(
+        "Column update is not supported by " + getClass().getName());
+  }
+
   /**
    * Create a new {@link RewriteFiles rewrite API} to replace files in this table and commit.
    *

@@ -55,6 +55,71 @@ abstract class BaseFile<F> extends SupportsIndexProjection
         }
       };
 
+  static class ColumnUpdateDetails extends SupportsIndexProjection
+      implements ContentFile.ColumnUpdateDetails {
+    private List<Integer> fieldIds;
+    private String filePath;
+
+    private ColumnUpdateDetails(List<Integer> fieldIds, String filePath) {
+      super(DataFile.COLUMN_UPDATES_TYPE.fields().size());
+      this.fieldIds = fieldIds;
+      this.filePath = filePath;
+    }
+
+    public static ColumnUpdateDetails of(List<Integer> fieldIds, String filePath) {
+      return new ColumnUpdateDetails(fieldIds, filePath);
+    }
+
+    /* BaseFile(Schema avroSchema) {
+      this(AvroSchemaUtil.convert(avroSchema).asStructType());
+      this.avroSchema = avroSchema;
+    }
+
+    BaseFile(Types.StructType projection) {*/
+
+    @Override
+    public List<Integer> fieldIds() {
+      return fieldIds;
+    }
+
+    @Override
+    public String filePath() {
+      return filePath;
+    }
+
+    @Override
+    protected <T> T internalGet(int pos, Class<T> javaClass) {
+      return javaClass.cast(getByPos(pos));
+    }
+
+    private Object getByPos(int basePos) {
+      return switch (basePos) {
+        case 0 -> fieldIds;
+        case 1 -> filePath;
+        default -> throw new UnsupportedOperationException("Unknown field ordinal: " + basePos);
+      };
+    }
+
+    @Override
+    protected <T> void internalSet(int pos, T value) {
+      switch (pos) {
+        case 0:
+          this.fieldIds = (List<Integer>) value;
+          return;
+        case 1:
+          this.filePath = value.toString();
+          return;
+        default:
+          // ignore the object, it must be from a newer version of the format
+      }
+    }
+
+    @Override
+    public int size() {
+      return ContentFile.ColumnUpdateDetails.getType().fields().size();
+    }
+  }
+
   private Types.StructType partitionType;
 
   private Long fileOrdinal = null;
@@ -84,6 +149,7 @@ abstract class BaseFile<F> extends SupportsIndexProjection
   private String referencedDataFile = null;
   private Long contentOffset = null;
   private Long contentSizeInBytes = null;
+  private ContentFile.ColumnUpdateDetails columnUpdateDetails = null;
 
   // cached schema
   private transient Schema avroSchema = null;
@@ -116,7 +182,8 @@ abstract class BaseFile<F> extends SupportsIndexProjection
           DataFile.REFERENCED_DATA_FILE,
           DataFile.CONTENT_OFFSET,
           DataFile.CONTENT_SIZE,
-          MetadataColumns.ROW_POSITION);
+          MetadataColumns.ROW_POSITION,
+          DataFile.COLUMN_UPDATES);
 
   /** Used by Avro reflection to instantiate this class when reading manifest files. */
   BaseFile(Schema avroSchema) {
@@ -161,7 +228,8 @@ abstract class BaseFile<F> extends SupportsIndexProjection
       Long firstRowId,
       String referencedDataFile,
       Long contentOffset,
-      Long contentSizeInBytes) {
+      Long contentSizeInBytes,
+      ContentFile.ColumnUpdateDetails columnUpdateDetails) {
     super(BASE_TYPE.fields().size());
     this.partitionSpecId = specId;
     this.content = content;
@@ -194,6 +262,7 @@ abstract class BaseFile<F> extends SupportsIndexProjection
     this.referencedDataFile = referencedDataFile;
     this.contentOffset = contentOffset;
     this.contentSizeInBytes = contentSizeInBytes;
+    this.columnUpdateDetails = columnUpdateDetails;
   }
 
   /**
@@ -250,6 +319,7 @@ abstract class BaseFile<F> extends SupportsIndexProjection
     this.referencedDataFile = toCopy.referencedDataFile;
     this.contentOffset = toCopy.contentOffset;
     this.contentSizeInBytes = toCopy.contentSizeInBytes;
+    this.columnUpdateDetails = toCopy.columnUpdateDetails;
   }
 
   /** Constructor for Java serialization. */
@@ -295,6 +365,39 @@ abstract class BaseFile<F> extends SupportsIndexProjection
 
   public void setFirstRowId(Long firstRowId) {
     this.firstRowId = firstRowId;
+  }
+
+  @Override
+  public ContentFile.ColumnUpdateDetails columnUpdateDetails() {
+    return columnUpdateDetails;
+  }
+
+  // TODO gaborkaszab: do I really need this?
+  /**
+   * Converts a value read from Avro to a ColumnUpdateDetails instance.
+   *
+   * <p>When reading from Avro, nested structs without custom type mappings are returned as
+   * GenericRecord or other StructLike implementations. This method handles the conversion.
+   */
+  @SuppressWarnings("unchecked")
+  private static ContentFile.ColumnUpdateDetails toColumnUpdateDetails(Object value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof ContentFile.ColumnUpdateDetails) {
+      return (ContentFile.ColumnUpdateDetails) value;
+    }
+
+    if (value instanceof StructLike) {
+      StructLike struct = (StructLike) value;
+      List<Integer> fieldIds = (List<Integer>) struct.get(0, List.class);
+      String filePath = struct.get(1, String.class);
+      return ColumnUpdateDetails.of(fieldIds, filePath);
+    }
+
+    throw new IllegalArgumentException(
+        "Cannot convert value of type " + value.getClass().getName() + " to ColumnUpdateDetails");
   }
 
   protected abstract Schema getAvroSchema(Types.StructType partitionStruct);
@@ -382,6 +485,9 @@ abstract class BaseFile<F> extends SupportsIndexProjection
       case 21:
         this.fileOrdinal = (long) value;
         return;
+      case 22:
+        this.columnUpdateDetails = toColumnUpdateDetails(value);
+        return;
       default:
         // ignore the object, it must be from a newer version of the format
     }
@@ -438,6 +544,8 @@ abstract class BaseFile<F> extends SupportsIndexProjection
         return contentSizeInBytes;
       case 21:
         return fileOrdinal;
+      case 22:
+        return columnUpdateDetails;
       default:
         throw new UnsupportedOperationException("Unknown field ordinal: " + basePos);
     }

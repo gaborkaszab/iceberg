@@ -74,6 +74,9 @@ class SparkRowLevelOperationBuilder implements RowLevelOperationBuilder {
           new SparkCopyOnWriteOperation(spark, table, snapshot, branch, info, isolationLevel);
       case MERGE_ON_READ ->
           new SparkPositionDeltaOperation(spark, table, snapshot, branch, info, isolationLevel);
+      case COLUMN_UPDATE ->
+          // TODO gaborkaszab: add snapshot param?
+          new SparkColumnUpdateOperation(spark, table, snapshot, branch, info, isolationLevel);
     };
   }
 

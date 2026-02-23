@@ -52,6 +52,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DistributionMode;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.ParameterizedTestExtension;
+import org.apache.iceberg.PlanningMode;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
@@ -324,6 +325,56 @@ public abstract class TestUpdate extends SparkRowLevelOperationsTestBase {
         "Should have expected rows",
         ImmutableList.of(row(1, "invalid")),
         sql("SELECT * FROM %s", selectTarget()));
+  }
+
+  @TestTemplate
+  public void myRandomExperimentTest() throws Exception {
+    // Skip non-Parquet formats for this test
+    assumeThat(fileFormat).isEqualTo(org.apache.iceberg.FileFormat.PARQUET);
+    // Because of this thread-local hack, this fails in distributed planning mode
+    assumeThat(planningMode).isEqualTo(PlanningMode.LOCAL);
+
+    this.formatVersion = 4;
+    createAndInitTable("id INT, dep STRING");
+    sql("ALTER TABLE %s SET TBLPROPERTIES('write.update.mode'='column-update')", tableName);
+
+    append(tableName, "{ \"id\": 1, \"dep\": \"str1\" }\n" + "{ \"id\": 2, \"dep\": \"str2\" }");
+    createBranchIfNeeded();
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.snapshots()).hasSize(1);
+
+    sql("UPDATE %s AS t SET t.dep = 'some_updated_value'", commitTarget());
+
+    table.refresh();
+    assertThat(table.snapshots()).as("Should have 2 snapshots").hasSize(2);
+
+    // Check the added data files - they should only contain metadata + dep column
+    org.apache.iceberg.Snapshot latestSnapshot = table.currentSnapshot();
+    for (org.apache.iceberg.DataFile dataFile : latestSnapshot.addedDataFiles(table.io())) {
+      // Read the Parquet file schema directly to verify
+      org.apache.hadoop.conf.Configuration conf = new org.apache.hadoop.conf.Configuration();
+      org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(dataFile.location());
+      org.apache.parquet.hadoop.ParquetFileReader reader =
+          org.apache.parquet.hadoop.ParquetFileReader.open(conf, path);
+      org.apache.parquet.schema.MessageType parquetSchema = reader.getFileMetaData().getSchema();
+      reader.close();
+
+      java.util.List<String> columnNames =
+          parquetSchema.getFields().stream()
+              .map(org.apache.parquet.schema.Type::getName)
+              .collect(java.util.stream.Collectors.toList());
+
+      // The file should NOT contain the 'id' column
+      // It should contain metadata columns + 'dep' column
+      assertThat(columnNames)
+          .as("Added file should NOT contain 'id' column, but schema is: " + columnNames)
+          .doesNotContain("id");
+
+      assertThat(columnNames)
+          .as("Added file should contain 'dep' column, but schema is: " + columnNames)
+          .contains("dep");
+    }
   }
 
   @TestTemplate

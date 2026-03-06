@@ -33,7 +33,8 @@ public class FlinkFormatModels {
             RowType.class,
             FlinkParquetWriters::buildWriter,
             (icebergSchema, fileSchema, engineSchema, idToConstant) ->
-                FlinkParquetReaders.buildReader(icebergSchema, fileSchema, idToConstant)));
+                FlinkParquetReaders.buildReader(icebergSchema, fileSchema, idToConstant),
+            null));
 
     FormatModelRegistry.register(
         AvroFormatModel.create(

@@ -18,7 +18,9 @@
  */
 package org.apache.iceberg.spark.source;
 
+import java.util.List;
 import org.apache.iceberg.avro.AvroFormatModel;
+import org.apache.iceberg.formats.FormatModel;
 import org.apache.iceberg.formats.FormatModelRegistry;
 import org.apache.iceberg.orc.ORCFormatModel;
 import org.apache.iceberg.parquet.ParquetFormatModel;
@@ -51,7 +53,11 @@ public class SparkFormatModels {
             StructType.class,
             SparkParquetWriters::buildWriter,
             (icebergSchema, fileSchema, engineSchema, idToConstant) ->
-                SparkParquetReaders.buildReader(icebergSchema, fileSchema, idToConstant)));
+                SparkParquetReaders.buildReader(icebergSchema, fileSchema, idToConstant),
+            (icebergSchema, families) -> {
+              CombinedInternalRow record = CombinedInternalRow.create(icebergSchema, families);
+              return new InternalRowCombiner(record);
+            }));
 
     FormatModelRegistry.register(
         ParquetFormatModel.create(
@@ -79,4 +85,22 @@ public class SparkFormatModels {
   }
 
   private SparkFormatModels() {}
+
+  private static class InternalRowCombiner implements FormatModel.Combiner<InternalRow> {
+    private final CombinedInternalRow template;
+
+    InternalRowCombiner(CombinedInternalRow template) {
+      this.template = template;
+    }
+
+    @Override
+    public InternalRow combine(List<InternalRow> rows) {
+      CombinedInternalRow clonedRow = CombinedInternalRow.clone(template);
+      for (int i = 0; i < rows.size(); i++) {
+        clonedRow.setColumnSplit(i, rows.get(i));
+      }
+
+      return clonedRow;
+    }
+  }
 }

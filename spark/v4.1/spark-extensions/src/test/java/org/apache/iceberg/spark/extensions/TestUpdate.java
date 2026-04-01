@@ -727,13 +727,43 @@ public abstract class TestUpdate extends SparkRowLevelOperationsTestBase {
 
     assertEquals(
         "Should have expected rows with only filtered rows updated",
-        ImmutableList.of(row(1, "str1_updated"), row(2, "str2_updated"), row(3, "str3_updated"), row(4, "str4_updated")),
+        ImmutableList.of(
+            row(1, "str1_updated"),
+            row(2, "str2_updated"),
+            row(3, "str3_updated"),
+            row(4, "str4_updated")),
         sql("SELECT * FROM %s ORDER BY id", selectTarget()));
 
     assertEquals(
         "Should have expected rows with only filtered rows updated",
         ImmutableList.of(row(2, "str2_updated")),
         sql("SELECT * FROM %s WHERE id < 3 and dep = 'str2_updated' ORDER BY id", selectTarget()));
+  }
+
+  @TestTemplate
+  public void columnUpdateWithRowLineage() throws Exception {
+    assumeThat(fileFormat).isEqualTo(org.apache.iceberg.FileFormat.PARQUET);
+    assumeThat(vectorized).isFalse();
+
+    this.formatVersion = 4;
+
+    createAndInitTable("id INT, col1 STRING, col2 STRING");
+    sql("ALTER TABLE %s SET TBLPROPERTIES('write.update.mode'='column-update')", tableName);
+
+    append(
+        tableName,
+        "{ \"id\": 1, \"col1\": \"a1\", \"col2\": \"b1\" }\n"
+            + "{ \"id\": 2, \"col1\": \"a2\", \"col2\": \"b2\" }");
+    createBranchIfNeeded();
+
+    sql("UPDATE %s AS t SET t.col1 = t.col2", commitTarget());
+
+    assertEquals(
+        "Should have expected rows",
+        ImmutableList.of(row(1, "b1", "b1", 1L, "25"), row(2, "b2", "b2", 2L, "22")),
+        sql(
+            "SELECT *, _row_id, _last_updated_sequence_number FROM %s ORDER BY id",
+            selectTarget()));
   }
 
   @TestTemplate

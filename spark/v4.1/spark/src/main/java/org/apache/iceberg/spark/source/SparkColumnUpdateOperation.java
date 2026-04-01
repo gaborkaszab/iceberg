@@ -22,6 +22,7 @@ import java.util.List;
 import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableUtil;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.expressions.NamedReference;
@@ -101,10 +102,15 @@ class SparkColumnUpdateOperation implements RowLevelOperation, SupportsColumnUpd
     };
   }
 
+  // TODO gaborkaszab: row lineage?
   @Override
   public NamedReference[] requiredMetadataAttributes() {
     List<NamedReference> metadataAttributes = Lists.newArrayList();
     metadataAttributes.add(SparkMetadataColumns.partition(table).asRef());
+
+    if (TableUtil.supportsRowLineage(table)) {
+      metadataAttributes.add(SparkMetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.asRef());
+    }
 
     return metadataAttributes.toArray(NamedReference[]::new);
   }

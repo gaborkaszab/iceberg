@@ -767,6 +767,50 @@ public abstract class TestUpdate extends SparkRowLevelOperationsTestBase {
   }
 
   @TestTemplate
+  public void testPartialColumnUpdate() throws Exception {
+    assumeThat(fileFormat).isEqualTo(org.apache.iceberg.FileFormat.PARQUET);
+    assumeThat(vectorized).isFalse();
+
+    this.formatVersion = 4;
+
+    createAndInitTable("id INT, dep STRING");
+    sql("ALTER TABLE %s SET TBLPROPERTIES('write.update.mode'='column-update')", tableName);
+
+    append(
+        tableName,
+        "{ \"id\": 1, \"dep\": \"str1\" }\n"
+            + "{ \"id\": 2, \"dep\": \"str2\" }\n"
+            + "{ \"id\": 3, \"dep\": \"str3\" }\n"
+            + "{ \"id\": 4, \"dep\": \"str4\" }");
+    createBranchIfNeeded();
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.snapshots()).hasSize(1);
+
+    // Update only rows where id is even
+    sql("UPDATE %s AS t SET t.dep = 'updated' WHERE t.id %% 2 = 0", commitTarget());
+
+    table.refresh();
+    assertThat(table.snapshots()).as("Should have 2 snapshots").hasSize(2);
+
+    List<ManifestFile> manifests = table.currentSnapshot().allManifests(table.io());
+    assertThat(manifests).hasSize(1);
+
+    ManifestFile manifest = manifests.get(0);
+
+    try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io())) {
+      DataFile dataFile = Iterables.getOnlyElement(reader);
+      assertThat(dataFile.columnUpdateDetails()).isNotNull().isNotEmpty().hasSize(1);
+      assertThat(dataFile.columnUpdateDetails().get(0).fieldIds()).containsExactly(2);
+    }
+
+    assertEquals(
+        "Should have expected rows with only filtered rows updated",
+        ImmutableList.of(row(1, "str1"), row(2, "updated"), row(3, "str3"), row(4, "updated")),
+        sql("SELECT * FROM %s ORDER BY id", selectTarget()));
+  }
+
+  @TestTemplate
   public void testUpdateAlignsAssignments() {
     createAndInitTable("id INT, c1 INT, c2 INT");
 

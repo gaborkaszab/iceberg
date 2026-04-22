@@ -38,7 +38,6 @@ import org.apache.iceberg.expressions.AggregateEvaluator;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.BoundAggregate;
 import org.apache.iceberg.expressions.Expression;
-import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -396,8 +395,8 @@ public class SparkScanBuilder extends BaseSparkScanBuilder
   }
 
   public Scan buildColumnUpdateScan() {
-    Preconditions.checkArgument(
-        filter() == Expressions.alwaysTrue(), "Filtering is not allowed with column update");
+    // Preconditions.checkArgument(
+    //    filter() == Expressions.alwaysTrue(), "Filtering is not allowed with column update");
 
     // Snapshot snapshot = SnapshotUtil.latestSnapshot(table(), readConf().branch());
     // Preconditions.checkState(snapshot != null, "Can't do column update on empty table");

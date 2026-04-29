@@ -99,7 +99,7 @@ class ColumnSplitReadBuilder<X, T> implements ReadBuilder<X, T> {
 
   @Override
   public ReadBuilder<X, T> filter(Expression newFilter) {
-    readBuilders.keySet().forEach(r -> r.filter(newFilter));
+    // readBuilders.keySet().forEach(r -> r.filter(newFilter));
     return this;
   }
 

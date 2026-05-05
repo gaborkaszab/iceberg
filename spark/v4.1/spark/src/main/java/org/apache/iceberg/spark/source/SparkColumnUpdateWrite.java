@@ -350,7 +350,8 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
           spec,
           Partitioning.partitionType(table),
           targetFileSize,
-          baseFileRowCountsBroadcast.value());
+          baseFileRowCountsBroadcast.value(),
+          dsSchema);
     }
   }
 
@@ -366,6 +367,7 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
     private final long targetFileSizeInBytes;
     private final InternalRowWrapper partitionRowWrapper;
     private final Map<String, Long> baseFileRowCounts;
+    private final StructType rowSparkType;
 
     private RollingDataWriter<InternalRow> currentWriter;
     private String currentFilePath;
@@ -382,7 +384,8 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
         PartitionSpec spec,
         Types.StructType partitionType,
         long targetFileSize,
-        Map<String, Long> baseFileRowCounts) {
+        Map<String, Long> baseFileRowCounts,
+        StructType rowSparkType) {
       this.writerFactory = writerFactory;
       this.fileFactory = fileFactory;
       this.io = io;
@@ -391,6 +394,7 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
       this.updateFilesByBasePath = Maps.newHashMap();
       this.closed = false;
       this.baseFileRowCounts = baseFileRowCounts;
+      this.rowSparkType = rowSparkType;
 
       if (spec.isPartitioned()) {
         StructType sparkPartitionType = (StructType) SparkSchemaUtil.convert(partitionType);
@@ -416,7 +420,7 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
       }
 
       if (numFields < 0) {
-        numFields = row.numFields();
+        numFields = row.numFields() + 1; // +1 for position column
       }
 
       Long position = id.getLong(POSITION_ORDINAL_IN_ID);
@@ -426,12 +430,24 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
           position,
           previousPosition);
       while (previousPosition < position - 1) {
-        currentWriter.write(new GenericInternalRow(row.numFields()));
+        GenericInternalRow nullRow = new GenericInternalRow(numFields);
+        nullRow.setLong(0, previousPosition + 1);
+        currentWriter.write(nullRow);
         ++previousPosition;
       }
       previousPosition = position;
 
-      currentWriter.write(row);
+      // Write row with position column prepended
+      GenericInternalRow outputRow = new GenericInternalRow(numFields);
+      outputRow.setLong(0, position);
+      for (int i = 0; i < row.numFields(); i++) {
+        if (row.isNullAt(i)) {
+          outputRow.setNullAt(i + 1);
+        } else {
+          outputRow.update(i + 1, row.get(i, rowSparkType.fields()[i + 1].dataType()));
+        }
+      }
+      currentWriter.write(outputRow);
     }
 
     @Override
@@ -465,7 +481,9 @@ public class SparkColumnUpdateWrite extends BaseSparkWrite
         Preconditions.checkState(
             baseFileRowCount != null, "Unable to find row count for base file " + currentFilePath);
         while (previousPosition < baseFileRowCount - 1) {
-          currentWriter.write(new GenericInternalRow(numFields));
+          GenericInternalRow nullRow = new GenericInternalRow(numFields);
+          nullRow.setLong(0, previousPosition + 1);
+          currentWriter.write(nullRow);
           ++previousPosition;
         }
 

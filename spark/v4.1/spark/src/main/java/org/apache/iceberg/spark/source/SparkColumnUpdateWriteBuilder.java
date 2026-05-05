@@ -25,6 +25,7 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.spark.SparkSchemaUtil;
 import org.apache.iceberg.spark.SparkUtil;
 import org.apache.iceberg.spark.SparkWriteConf;
@@ -74,6 +75,14 @@ public class SparkColumnUpdateWriteBuilder implements DeltaWriteBuilder {
     List<Integer> updatedFieldIds =
         readSchema.columns().stream().map(Types.NestedField::fieldId).toList();
 
+    // Prepend position column to the schema for the update files
+    List<Types.NestedField> fieldsWithPosition = Lists.newArrayList();
+    fieldsWithPosition.add(MetadataColumns.ROW_POSITION);
+    fieldsWithPosition.addAll(readSchema.columns());
+    Schema writeSchema = new Schema(fieldsWithPosition);
+
+    StructType writeSparkSchema = SparkSchemaUtil.convert(writeSchema);
+
     SparkUtil.validatePartitionTransforms(table.spec());
 
     return new SparkColumnUpdateWrite(
@@ -84,8 +93,8 @@ public class SparkColumnUpdateWriteBuilder implements DeltaWriteBuilder {
         writeConf,
         writeInfo,
         spark.sparkContext().applicationId(),
-        readSchema,
-        dsSchema,
+        writeSchema,
+        writeSparkSchema,
         writeRequirements(),
         updatedFieldIds);
   }

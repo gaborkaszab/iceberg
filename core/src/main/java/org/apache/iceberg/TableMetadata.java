@@ -1426,6 +1426,16 @@ public class TableMetadata implements Serializable {
       return this;
     }
 
+    public Builder suppressHistoricalSnapshotsButNotTheSnapshotList() {
+      this.suppressHistoricalSnapshots = true;
+      Set<Long> refSnapshotIds =
+          refs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
+      Set<Long> suppressedSnapshotIds = Sets.difference(snapshotsById.keySet(), refSnapshotIds);
+      rewriteSnapshotsInternal(suppressedSnapshotIds, true);
+      // this.snapshotLog.removeIf(entry -> !refSnapshotIds.contains(entry.snapshotId()));
+      return this;
+    }
+
     public Builder setPartitionStatistics(PartitionStatisticsFile file) {
       Preconditions.checkNotNull(file, "partition statistics file is null");
       partitionStatisticsFiles.put(file.snapshotId(), ImmutableList.of(file));

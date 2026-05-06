@@ -527,7 +527,7 @@ public class CatalogHandlers {
           metadata =
               TableMetadata.buildFrom(loadedMetadata)
                   .withMetadataLocation(loadedMetadata.metadataFileLocation())
-                  .suppressHistoricalSnapshots()
+                  .suppressHistoricalSnapshotsButNotTheSnapshotList()
                   .build();
           break;
         default:

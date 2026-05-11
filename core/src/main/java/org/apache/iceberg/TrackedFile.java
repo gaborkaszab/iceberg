@@ -87,6 +87,12 @@ interface TrackedFile {
           "equality_ids",
           Types.ListType.ofRequired(136, Types.IntegerType.get()),
           "Field ids used to determine row equality in equality delete files");
+  Types.NestedField COLUMN_FILES =
+      Types.NestedField.optional(
+          157,
+          "column_files",
+          Types.ListType.ofRequired(158, ColumnFileInfo.schema()),
+          "Column update files");
 
   static Types.StructType schemaWithContentStats(Types.StructType contentStatsType) {
     return Types.StructType.of(
@@ -104,7 +110,8 @@ interface TrackedFile {
         MANIFEST_INFO,
         KEY_METADATA,
         SPLIT_OFFSETS,
-        EQUALITY_IDS);
+        EQUALITY_IDS,
+        COLUMN_FILES);
   }
 
   /** Returns the tracking information for this entry. */
@@ -148,6 +155,9 @@ interface TrackedFile {
 
   /** Returns the set of field IDs used for equality comparison in equality delete files. */
   List<Integer> equalityIds();
+
+  /** Returns the column files for this file. */
+  List<ColumnFileInfo> columnFiles();
 
   /** Copies this tracked file. */
   TrackedFile copy();

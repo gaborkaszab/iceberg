@@ -21,11 +21,16 @@ package org.apache.iceberg.parquet;
 import static org.apache.iceberg.parquet.ParquetWritingTestUtils.createTempFile;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
@@ -57,6 +62,7 @@ import org.apache.iceberg.variants.VariantMetadata;
 import org.apache.iceberg.variants.VariantTestUtil;
 import org.apache.iceberg.variants.VariantValue;
 import org.apache.iceberg.variants.Variants;
+import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.ParquetReader;
@@ -540,5 +546,141 @@ public class TestParquetDataWriter {
       InternalTestHelpers.assertEquals(
           variantSchema.asStruct(), variantRecords.get(i), writtenRecords.get(i));
     }
+  }
+
+  @Test
+  public void testDroppedRowsSkippedVsNullFilled() throws IOException {
+    // Schema: 10 int cols + 20 string cols (all optional so nulls are allowed)
+    List<Types.NestedField> fields = Lists.newArrayList();
+    int fieldId = 1;
+    for (int i = 0; i < 10; i++) {
+      fields.add(Types.NestedField.optional(fieldId++, "int_col_" + i, Types.IntegerType.get()));
+    }
+    for (int i = 0; i < 20; i++) {
+      fields.add(Types.NestedField.optional(fieldId++, "str_col_" + i, Types.StringType.get()));
+    }
+    Schema schema = new Schema(fields);
+
+    final int totalRows = 3_000_000;
+    final double dropRatio = 0.05;
+    final long seed = 42L;
+
+    // Pre-compute the set of "dropped" rows so both files agree on the same positions.
+    Random dropRandom = new Random(seed);
+    BitSet dropped = new BitSet(totalRows);
+    for (int i = 0; i < totalRows; i++) {
+      if (dropRandom.nextDouble() < dropRatio) {
+        dropped.set(i);
+      }
+    }
+    int expectedDropped = dropped.cardinality();
+    int expectedKept = totalRows - expectedDropped;
+
+    // File A: dropped rows are NOT written (fewer physical rows).
+    File fileSkipped = createTempFile(temp);
+    OutputFile outSkipped = Files.localOutput(fileSkipped);
+
+    // File B: dropped rows are written as all-NULL rows (same row count as totalRows).
+    File fileNulls = createTempFile(temp);
+    OutputFile outNulls = Files.localOutput(fileNulls);
+
+    // Separate Random for column values so it's independent of the drop decisions.
+    Random valueRandom = new Random(seed + 1);
+    GenericRecord template = GenericRecord.create(schema);
+
+    long writtenSkipped = 0;
+    long writtenNulls = 0;
+
+    try (FileAppender<Record> appenderSkipped =
+            Parquet.write(outSkipped)
+                .schema(schema)
+                .createWriterFunc(GenericParquetWriter::create)
+                .overwrite()
+                // .writerVersion(ParquetProperties.WriterVersion.PARQUET_2_0)
+                .build();
+        FileAppender<Record> appenderNulls =
+            Parquet.write(outNulls)
+                .schema(schema)
+                .createWriterFunc(GenericParquetWriter::create)
+                // .writerVersion(ParquetProperties.WriterVersion.PARQUET_2_0)
+                .overwrite()
+                .build()) {
+
+      for (int i = 0; i < totalRows; i++) {
+        if (dropped.get(i)) {
+          // All-null record for the "null-filled" representation.
+          Map<String, Object> values = new HashMap<>(30);
+          for (int c = 0; c < 10; c++) {
+            values.put("int_col_" + c, null);
+          }
+          for (int c = 0; c < 20; c++) {
+            values.put("str_col_" + c, null);
+          }
+          appenderNulls.add(template.copy(values));
+          writtenNulls++;
+          // Skipped file: do not write anything for dropped rows.
+        } else {
+          Map<String, Object> values = new HashMap<>(30);
+          for (int c = 0; c < 10; c++) {
+            values.put("int_col_" + c, valueRandom.nextInt());
+          }
+          for (int c = 0; c < 20; c++) {
+            byte[] buf = new byte[8];
+            for (int b = 0; b < buf.length; b++) {
+              buf[b] = (byte) ('a' + valueRandom.nextInt(26));
+            }
+            values.put("str_col_" + c, new String(buf));
+          }
+          Record record = template.copy(values);
+          appenderSkipped.add(record);
+          appenderNulls.add(record);
+          writtenSkipped++;
+          writtenNulls++;
+        }
+      }
+    }
+
+    assertThat(writtenSkipped).isEqualTo(expectedKept);
+    assertThat(writtenNulls).isEqualTo(totalRows);
+    assertThat(fileSkipped).exists();
+    assertThat(fileNulls).exists();
+
+    // Verify physical row counts by reading both files back.
+    long readSkipped = 0;
+    try (CloseableIterable<Record> reader =
+        Parquet.read(outSkipped.toInputFile())
+            .project(schema)
+            .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(schema, fileSchema))
+            .build()) {
+      for (Record ignored : reader) {
+        readSkipped++;
+      }
+    }
+    assertThat(readSkipped).isEqualTo(expectedKept);
+
+    long readNulls = 0;
+    long allNullRows = 0;
+    int columnCount = schema.columns().size();
+    try (CloseableIterable<Record> reader =
+        Parquet.read(outNulls.toInputFile())
+            .project(schema)
+            .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(schema, fileSchema))
+            .build()) {
+      for (Record r : reader) {
+        readNulls++;
+        boolean allNull = true;
+        for (int f = 0; f < columnCount; f++) {
+          if (r.get(f) != null) {
+            allNull = false;
+            break;
+          }
+        }
+        if (allNull) {
+          allNullRows++;
+        }
+      }
+    }
+    assertThat(readNulls).isEqualTo(totalRows);
+    assertThat(allNullRows).isEqualTo(expectedDropped);
   }
 }

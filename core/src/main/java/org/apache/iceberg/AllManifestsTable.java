@@ -19,10 +19,14 @@
 package org.apache.iceberg;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import org.apache.iceberg.encryption.EncryptingFileIO;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.encryption.EncryptionUtil;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.BoundReference;
@@ -121,6 +125,8 @@ public class AllManifestsTable extends BaseMetadataTable {
     @Override
     protected CloseableIterable<FileScanTask> doPlanFiles() {
       FileIO io = table().io();
+      EncryptionManager em =
+          io instanceof EncryptingFileIO encryptingIO ? encryptingIO.encryptionManager() : null;
       Map<Integer, PartitionSpec> specs = Maps.newHashMap(table().specs());
       Schema dataTableSchema = table().schema();
       Expression rowFilter = filter();
@@ -137,12 +143,16 @@ public class AllManifestsTable extends BaseMetadataTable {
               filteredSnapshots,
               snap -> {
                 if (snap.manifestListLocation() != null) {
+                  ByteBuffer keyMetadata =
+                      snap.keyId() != null
+                          ? EncryptionUtil.decryptKeyMetadata(snap.keyId(), em)
+                          : null;
                   return new ManifestListReadTask(
                       dataTableSchema,
                       io,
                       schema(),
                       specs,
-                      new BaseManifestListFile(snap.manifestListLocation(), snap.keyId()),
+                      new BaseManifestListFile(snap.manifestListLocation(), keyMetadata),
                       residual,
                       snap.snapshotId());
                 } else {

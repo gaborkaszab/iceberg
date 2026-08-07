@@ -20,9 +20,13 @@ package org.apache.iceberg;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.apache.iceberg.encryption.EncryptingFileIO;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.encryption.EncryptionUtil;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
@@ -182,10 +186,19 @@ class BaseSnapshot implements Snapshot {
 
     if (allManifests == null) {
       // if manifests isn't set, then the snapshotFile is set and should be read to get the list
+      ByteBuffer keyMetadata = null;
+      if (keyId != null) {
+        EncryptionManager em =
+            fileIO instanceof EncryptingFileIO encryptingIO
+                ? encryptingIO.encryptionManager()
+                : null;
+        keyMetadata = EncryptionUtil.decryptKeyMetadata(keyId, em);
+      }
+
       this.allManifests =
           ManifestLists.read(
               ManifestLists.newInputFile(
-                  fileIO, new BaseManifestListFile(manifestListLocation, keyId)));
+                  fileIO, new BaseManifestListFile(manifestListLocation, keyMetadata)));
     }
 
     if (dataManifests == null || deleteManifests == null) {

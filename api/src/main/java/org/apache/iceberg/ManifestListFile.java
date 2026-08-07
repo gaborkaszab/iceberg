@@ -21,14 +21,39 @@ package org.apache.iceberg;
 import java.nio.ByteBuffer;
 import org.apache.iceberg.encryption.EncryptionManager;
 
-public interface ManifestListFile {
+public interface ManifestListFile extends EncryptedFile {
 
-  /** Location of manifest list file. */
-  String location();
+  @Override
+  default long fileSizeInBytes() {
+    return NO_SIZE;
+  }
 
-  /** The manifest list key metadata can be encrypted. Returns ID of encryption key */
-  String encryptionKeyID();
+  /**
+   * The manifest list key metadata can be encrypted. Returns ID of encryption key
+   *
+   * @deprecated since 1.13.0, will be removed in 2.0.0; Key metadata is expected to be stored
+   *     directly, use {@link #keyMetadata()} instead.
+   */
+  @Deprecated
+  default String encryptionKeyID() {
+    return null;
+  }
 
-  /** Decrypt and return the manifest list key metadata */
+  /**
+   * Decrypt and return the manifest list key metadata
+   *
+   * @deprecated since 1.13.0, will be removed in 2.0.0; use {@link #keyMetadata()} instead.
+   */
+  @Deprecated
   ByteBuffer decryptKeyMetadata(EncryptionManager em);
+
+  @Override
+  default ByteBuffer keyMetadata() {
+    if (encryptionKeyID() == null) {
+      return null;
+    }
+
+    throw new UnsupportedOperationException(
+        getClass().getName() + " key metadata is not supported");
+  }
 }

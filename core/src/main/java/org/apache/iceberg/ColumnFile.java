@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.Set;
 import org.apache.iceberg.types.Types;
 
-interface ColumnFile {
+interface ColumnFile extends EncryptedFile {
   Types.NestedField LOCATION =
       Types.NestedField.required(
           160, "location", Types.StringType.get(), "Location of the column file");
@@ -53,6 +53,7 @@ interface ColumnFile {
   }
 
   /** Returns the location of this column file. */
+  @Override
   String location();
 
   /** Returns the field IDs contained in this column file. */
@@ -62,9 +63,11 @@ interface ColumnFile {
   FileFormat fileFormat();
 
   /** Returns the total size of this column file in bytes. */
+  @Override
   long fileSizeInBytes();
 
   /** Returns encryption key metadata, or null if this column file is not encrypted. */
+  @Override
   ByteBuffer keyMetadata();
 
   /** Copies this column file. */

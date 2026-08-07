@@ -168,20 +168,17 @@ public class StandardEncryptionManager implements EncryptionManager {
     return System.currentTimeMillis() + testTimeShift;
   }
 
-  ByteBuffer encryptedByKey(String manifestListKeyID) {
-    EncryptedKey encryptedKeyMetadata = encryptionKeys.get(manifestListKeyID);
+  ByteBuffer encryptedByKey(String keyId) {
+    EncryptedKey encryptedKey = encryptionKeys.get(keyId);
 
-    Preconditions.checkState(
-        encryptedKeyMetadata != null,
-        "Cannot find manifest list key metadata with id %s",
-        manifestListKeyID);
+    Preconditions.checkState(encryptedKey != null, "Cannot find key metadata with id %s", keyId);
 
     Preconditions.checkArgument(
-        !encryptedKeyMetadata.encryptedById().equals(tableKeyId),
-        "%s is a key encryption key, not manifest list key metadata",
-        manifestListKeyID);
+        !encryptedKey.encryptedById().equals(tableKeyId),
+        "%s is a key encryption key, not key metadata",
+        keyId);
 
-    return unwrappedKeyCache().get(encryptedKeyMetadata.encryptedById());
+    return unwrappedKeyCache().get(encryptedKey.encryptedById());
   }
 
   /**

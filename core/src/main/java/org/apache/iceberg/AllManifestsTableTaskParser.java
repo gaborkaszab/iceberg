@@ -21,6 +21,7 @@ package org.apache.iceberg;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Map;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.ExpressionParser;
@@ -28,6 +29,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.FileIOParser;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.iceberg.util.PartitionUtil;
 
@@ -37,7 +39,7 @@ class AllManifestsTableTaskParser {
   private static final String SCHEMA = "schema";
   private static final String SPECS = "partition-specs";
   private static final String MANIFEST_LIST_LOCATION = "manifest-list-Location";
-  private static final String MANIFEST_LIST_KEY_ID = "manifest-list-key-id";
+  private static final String MANIFEST_LIST_KEY_METADATA = "manifest-list-key-metadata";
   private static final String RESIDUAL = "residual-filter";
   private static final String REFERENCE_SNAPSHOT_ID = "reference-snapshot-id";
 
@@ -65,8 +67,10 @@ class AllManifestsTableTaskParser {
     generator.writeEndArray();
 
     generator.writeStringField(MANIFEST_LIST_LOCATION, task.manifestList().location());
-    if (task.manifestList().encryptionKeyID() != null) {
-      generator.writeStringField(MANIFEST_LIST_KEY_ID, task.manifestList().encryptionKeyID());
+    ByteBuffer keyMetadata = task.manifestList().keyMetadata();
+    if (keyMetadata != null) {
+      generator.writeFieldName(MANIFEST_LIST_KEY_METADATA);
+      SingleValueParser.toJson(Types.BinaryType.get(), keyMetadata, generator);
     }
 
     generator.writeFieldName(RESIDUAL);
@@ -96,7 +100,8 @@ class AllManifestsTableTaskParser {
 
     Map<Integer, PartitionSpec> specsById = PartitionUtil.indexSpecs(specsBuilder.build());
     String manifestListLocation = JsonUtil.getString(MANIFEST_LIST_LOCATION, jsonNode);
-    String manifestListKeyId = JsonUtil.getStringOrNull(MANIFEST_LIST_KEY_ID, jsonNode);
+    ByteBuffer manifestListKeyMetadata =
+        JsonUtil.getByteBufferOrNull(MANIFEST_LIST_KEY_METADATA, jsonNode);
     Expression residualFilter = ExpressionParser.fromJson(JsonUtil.get(RESIDUAL, jsonNode));
     long referenceSnapshotId = JsonUtil.getLong(REFERENCE_SNAPSHOT_ID, jsonNode);
 
@@ -105,7 +110,7 @@ class AllManifestsTableTaskParser {
         fileIO,
         schema,
         specsById,
-        new BaseManifestListFile(manifestListLocation, manifestListKeyId),
+        new BaseManifestListFile(manifestListLocation, manifestListKeyMetadata),
         residualFilter,
         referenceSnapshotId);
   }

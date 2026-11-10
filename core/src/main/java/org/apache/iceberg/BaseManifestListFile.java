@@ -21,15 +21,15 @@ package org.apache.iceberg;
 import java.io.Serializable;
 import java.nio.ByteBuffer;
 import org.apache.iceberg.encryption.EncryptionManager;
-import org.apache.iceberg.encryption.EncryptionUtil;
+import org.apache.iceberg.util.ByteBuffers;
 
 class BaseManifestListFile implements ManifestListFile, Serializable {
   private final String location;
-  private final String encryptionKeyID;
+  private final byte[] keyMetadata;
 
-  BaseManifestListFile(String location, String encryptionKeyID) {
+  BaseManifestListFile(String location, ByteBuffer keyMetadata) {
     this.location = location;
-    this.encryptionKeyID = encryptionKeyID;
+    this.keyMetadata = ByteBuffers.toByteArray(keyMetadata);
   }
 
   @Override
@@ -38,12 +38,12 @@ class BaseManifestListFile implements ManifestListFile, Serializable {
   }
 
   @Override
-  public String encryptionKeyID() {
-    return encryptionKeyID;
+  public ByteBuffer keyMetadata() {
+    return keyMetadata != null ? ByteBuffer.wrap(keyMetadata) : null;
   }
 
   @Override
   public ByteBuffer decryptKeyMetadata(EncryptionManager em) {
-    return EncryptionUtil.decryptManifestListKeyMetadata(this, em);
+    return keyMetadata();
   }
 }

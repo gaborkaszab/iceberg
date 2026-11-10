@@ -25,6 +25,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.StringWriter;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Map;
 import org.apache.iceberg.expressions.Expressions;
@@ -91,7 +92,8 @@ public class TestAllManifestsTableTaskParser {
         fileIO,
         AllManifestsTable.MANIFEST_FILE_SCHEMA,
         specsById,
-        new BaseManifestListFile("/path/manifest-list-file.avro", "a"),
+        new BaseManifestListFile(
+            "/path/manifest-list-file.avro", ByteBuffer.wrap(new byte[] {1, 2, 3})),
         Expressions.equal("id", 1),
         1L);
   }
@@ -126,7 +128,7 @@ public class TestAllManifestsTableTaskParser {
         + "\"partition-specs\":[{\"spec-id\":0,\"fields\":[{\"name\":\"data_bucket\","
         + "\"transform\":\"bucket[16]\",\"source-id\":4,\"field-id\":1000}]}],"
         + "\"manifest-list-Location\":\"/path/manifest-list-file.avro\","
-        + "\"manifest-list-key-id\":\"a\","
+        + "\"manifest-list-key-metadata\":\"010203\","
         + "\"residual-filter\":{\"type\":\"eq\",\"term\":\"id\",\"value\":1},"
         + "\"reference-snapshot-id\":1}";
   }
@@ -148,8 +150,8 @@ public class TestAllManifestsTableTaskParser {
 
     assertThat(actual.specsById()).isEqualTo(expected.specsById());
     assertThat(actual.manifestList().location()).isEqualTo(expected.manifestList().location());
-    assertThat(actual.manifestList().encryptionKeyID())
-        .isEqualTo(expected.manifestList().encryptionKeyID());
+    assertThat(actual.manifestList().keyMetadata())
+        .isEqualTo(expected.manifestList().keyMetadata());
     assertThat(actual.residual().toString()).isEqualTo(expected.residual().toString());
     assertThat(actual.referenceSnapshotId()).isEqualTo(expected.referenceSnapshotId());
   }

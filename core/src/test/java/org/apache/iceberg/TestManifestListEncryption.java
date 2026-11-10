@@ -328,13 +328,11 @@ public class TestManifestListEncryption {
 
   private List<ManifestFile> readManifestListWithCommittedKeys(
       TableMetadata metadata, Snapshot snapshot) {
-    try (FileIO io =
-        EncryptingFileIO.combine(
-            new TestTables.LocalFileIO(),
-            EncryptionTestHelpers.createEncryptionManager(metadata.encryptionKeys()))) {
+    EncryptionManager em = EncryptionTestHelpers.createEncryptionManager(metadata.encryptionKeys());
+    try (FileIO io = EncryptingFileIO.combine(new TestTables.LocalFileIO(), em)) {
+      ByteBuffer keyMetadata = EncryptionUtil.decryptKeyMetadata(snapshot.keyId(), em);
       return ManifestLists.read(
-          io.newInputFile(
-              new BaseManifestListFile(snapshot.manifestListLocation(), snapshot.keyId())));
+          io.newInputFile(new BaseManifestListFile(snapshot.manifestListLocation(), keyMetadata)));
     }
   }
 
@@ -367,16 +365,15 @@ public class TestManifestListEncryption {
         .hasMessageContaining("Failed to open file")
         .hasCauseInstanceOf(InvalidAvroMagicException.class);
 
-    try (FileIO readingIO =
-        EncryptingFileIO.combine(
-            io,
-            EncryptionTestHelpers.createEncryptionManager(
-                List.of(encryptionKeys.keyEncryptionKey(), encryptionKeys.fileKey())))) {
+    EncryptionManager readingEM =
+        EncryptionTestHelpers.createEncryptionManager(
+            List.of(encryptionKeys.keyEncryptionKey(), encryptionKeys.fileKey()));
+    try (FileIO readingIO = EncryptingFileIO.combine(io, readingEM)) {
+      ByteBuffer keyMetadata =
+          EncryptionUtil.decryptKeyMetadata(encryptionKeys.fileKey().keyId(), readingEM);
       List<ManifestFile> manifests =
           ManifestLists.read(
-              readingIO.newInputFile(
-                  new BaseManifestListFile(
-                      outputFile.location(), encryptionKeys.fileKey().keyId())));
+              readingIO.newInputFile(new BaseManifestListFile(outputFile.location(), keyMetadata)));
       assertThat(manifests).hasSize(1);
       return manifests.get(0);
     }

@@ -65,8 +65,7 @@ public interface FileIO extends Serializable, Closeable {
         manifestList.encryptionKeyID() == null,
         "Cannot decrypt manifest list: %s (use EncryptingFileIO)",
         manifestList.location());
-    // cannot pass length because it is not tracked outside of key metadata
-    return newInputFile(manifestList.location());
+    return newInputFile((EncryptedFile) manifestList);
   }
 
   default InputFile newInputFile(EncryptedFile file) {
@@ -74,7 +73,11 @@ public interface FileIO extends Serializable, Closeable {
         file.keyMetadata() == null,
         "Cannot decrypt file: %s (use EncryptingFileIO)",
         file.location());
-    return newInputFile(file.location(), file.fileSizeInBytes());
+    if (file.fileSizeInBytes() != EncryptedFile.NO_SIZE) {
+      return newInputFile(file.location(), file.fileSizeInBytes());
+    }
+
+    return newInputFile(file.location());
   }
 
   /** Get a {@link OutputFile} instance to write bytes to the file at the given path. */

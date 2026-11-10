@@ -145,16 +145,26 @@ public class EncryptionUtil {
    */
   public static ByteBuffer decryptManifestListKeyMetadata(
       ManifestListFile manifestList, EncryptionManager em) {
+    return decryptKeyMetadata(manifestList.encryptionKeyID(), em);
+  }
+
+  /**
+   * Decrypt the key metadata stored in the table's encryption keys under the given key ID.
+   *
+   * @param keyId ID of the encryption key
+   * @param em the table's EncryptionManager
+   * @return a decrypted key metadata buffer
+   */
+  public static ByteBuffer decryptKeyMetadata(String keyId, EncryptionManager em) {
     Preconditions.checkState(
         em instanceof StandardEncryptionManager,
-        "Snapshot key metadata encryption requires a StandardEncryptionManager");
+        "Key metadata decryption requires a StandardEncryptionManager");
     StandardEncryptionManager sem = (StandardEncryptionManager) em;
-    String manifestListKeyId = manifestList.encryptionKeyID();
     Map<String, EncryptedKey> encryptionKeys = sem.encryptionKeys();
-    EncryptedKey manifestListKey = encryptionKeys.get(manifestListKeyId);
-    ByteBuffer encryptedKeyMetadata = manifestListKey.encryptedKeyMetadata();
-    String keyEncryptionKeyID = manifestListKey.encryptedById();
-    ByteBuffer keyEncryptionKey = sem.encryptedByKey(manifestListKeyId);
+    EncryptedKey encryptedKey = encryptionKeys.get(keyId);
+    ByteBuffer encryptedKeyMetadata = encryptedKey.encryptedKeyMetadata();
+    String keyEncryptionKeyID = encryptedKey.encryptedById();
+    ByteBuffer keyEncryptionKey = sem.encryptedByKey(keyId);
     String keyEncryptionKeyTimestamp =
         encryptionKeys
             .get(keyEncryptionKeyID)

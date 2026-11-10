@@ -23,10 +23,12 @@ import java.nio.ByteBuffer;
 /** A file that may be encrypted. */
 public interface EncryptedFile {
 
+  long NO_SIZE = -1L;
+
   /** Returns the location of the file. */
   String location();
 
-  /** Returns the size of the file in bytes. */
+  /** Returns the size of the file in bytes, or {@link #NO_SIZE} if the size is not known. */
   long fileSizeInBytes();
 
   /**

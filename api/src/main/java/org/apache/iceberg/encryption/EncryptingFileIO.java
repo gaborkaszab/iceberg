@@ -34,6 +34,7 @@ import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.io.SupportsPrefixOperations;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 
@@ -70,6 +71,10 @@ public class EncryptingFileIO implements FileIO, Serializable {
 
     List<EncryptedInputFile> encryptedFiles = Lists.newArrayList();
     for (EncryptedFile file : files) {
+      Preconditions.checkArgument(
+          file.fileSizeInBytes() != EncryptedFile.NO_SIZE,
+          "Cannot bulk decrypt file with unknown size: %s",
+          file.location());
       if (file.keyMetadata() != null) {
         encryptedFiles.add(wrap(file));
       } else {
@@ -100,10 +105,18 @@ public class EncryptingFileIO implements FileIO, Serializable {
     return io.newInputFile(path, length);
   }
 
+  /**
+   * @deprecated since 1.13.0, will be removed in 2.0.0; use {@link #newInputFile(EncryptedFile)}
+   *     instead.
+   */
+  @Deprecated
   @Override
   public InputFile newInputFile(ManifestListFile manifestList) {
-    if (manifestList.encryptionKeyID() != null) {
-      ByteBuffer keyMetadata = manifestList.decryptKeyMetadata(em);
+    ByteBuffer keyMetadata =
+        manifestList.encryptionKeyID() != null
+            ? manifestList.decryptKeyMetadata(em)
+            : manifestList.keyMetadata();
+    if (keyMetadata != null) {
       return newDecryptingInputFile(manifestList.location(), keyMetadata);
     } else {
       return newInputFile(manifestList.location());
@@ -112,10 +125,16 @@ public class EncryptingFileIO implements FileIO, Serializable {
 
   @Override
   public InputFile newInputFile(EncryptedFile file) {
-    if (file.keyMetadata() != null) {
-      return newDecryptingInputFile(file.location(), file.fileSizeInBytes(), file.keyMetadata());
+    ByteBuffer keyMetadata = file.keyMetadata();
+    long size = file.fileSizeInBytes();
+    if (keyMetadata != null) {
+      return size != EncryptedFile.NO_SIZE
+          ? newDecryptingInputFile(file.location(), size, keyMetadata)
+          : newDecryptingInputFile(file.location(), keyMetadata);
     } else {
-      return newInputFile(file.location(), file.fileSizeInBytes());
+      return size != EncryptedFile.NO_SIZE
+          ? newInputFile(file.location(), size)
+          : newInputFile(file.location());
     }
   }
 
